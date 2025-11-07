@@ -592,6 +592,7 @@ router.get('/list/:category_id', async (req, res) => {
             order: [['publish_date', 'DESC']],
             limit: pageSize,
             offset: offset,
+            distinct: true,
         });
 
         // 返回结果包含总数量、当前页码和文章列表
