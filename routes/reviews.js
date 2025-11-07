@@ -41,7 +41,7 @@ router.post('/:article_id', async (req, res) => {
         res.json({ message: '审核完成', review_result, newStatus });
     } catch (e) {
         await t.rollback();
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: '更新失败: ' + e.message });
     }
 });
 

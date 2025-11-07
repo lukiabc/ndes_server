@@ -8,7 +8,6 @@ const wordCache = new NodeCache({ stdTTL: 0 }); // 缓存敏感词
 
 // 缓存正则表达式示例
 const regexCache = new Map();
-let regexPatternCache = [];
 
 // 加载敏感词
 async function loadWords() {
@@ -51,7 +50,7 @@ async function loadWords() {
     }
 }
 
-// 过滤敏感词（混合模式）
+// 过滤敏感词
 function filter(text) {
     if (!text || typeof text !== 'string') return { text, hitWords: [] };
 

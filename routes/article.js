@@ -1,10 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../utils/upload');
-const { scanText } = require('../utils/aliyun-green');
 const { performReview } = require('../utils/ai-review');
 
-// 引入模型和工具
 const {
     sequelize,
     Article,
@@ -14,7 +12,7 @@ const {
     ArticleVersion,
 } = require('../utils/db');
 const { Sequelize } = require('sequelize');
-const { filter } = require('../utils/sensitive'); // 敏感词过滤器
+const { filter } = require('../utils/sensitive');
 
 // 根据状态查询文章
 router.get('/status/:status', async (req, res) => {
@@ -65,7 +63,7 @@ router.get('/status/:status', async (req, res) => {
             order: [['publish_date', 'DESC']],
             limit: pageSize,
             offset: offset,
-            subQuery: false,
+            subQuery: false, //不使用子查询
         });
 
         res.json({
@@ -166,9 +164,9 @@ router.post('/create', upload.array('file', 10), async (req, res) => {
     let status = '草稿';
     let scheduled_publish_date = null;
     let publish_date = null;
-    let reviewLog = null;
+    let reviewLog = null; // 审核日志
 
-    // 非草稿：触发 AI 审核 或 设置定时发布
+    // 非草稿 触发 AI 审核 或 设置定时发布
     if (as !== 'draft') {
         if (scheduledTimeStr) {
             scheduled_publish_date = new Date(scheduledTimeStr);
@@ -599,11 +597,11 @@ router.get('/searchAll', async (req, res) => {
         // 判断是否为短词（中文单字、双字 或 英文短词）
         const isShortWord = replacedQ.length <= 2;
 
-        // 前端传： status=published 表示只查已发布
+        // 只查已发布文章
         const wantPublishedOnly = req.query.status === 'published';
 
         if (isShortWord) {
-            // 一：短词使用 LIKE 模糊匹配
+            //短词使用 LIKE 模糊匹配
             console.log(`[SEARCH] 使用 LIKE 模式搜索短词: ${replacedQ}`);
 
             const whereConditions = {
@@ -622,7 +620,6 @@ router.get('/searchAll', async (req, res) => {
                             },
                         ],
                     },
-                    //  动态添加：只有前端要求时才加状态过滤
                     ...(wantPublishedOnly ? [{ status: '已发布' }] : []),
                 ],
             };
@@ -658,10 +655,10 @@ router.get('/searchAll', async (req, res) => {
                     'content',
                     'publish_date',
                     'status',
-                    // 手动加一个 score 字段用于排序（简单相关性）
+                    // 手动加一个 score 字段用于排序
                     [
                         Sequelize.literal(`
-                            (CASE 
+                            (CASE
                                 WHEN INSTR(title, '${replacedQ}') > 0 AND INSTR(content, '${replacedQ}') > 0 THEN 2
                                 WHEN INSTR(title, '${replacedQ}') > 0 THEN 1.5
                                 WHEN INSTR(content, '${replacedQ}') > 0 THEN 1
@@ -680,7 +677,7 @@ router.get('/searchAll', async (req, res) => {
                 subQuery: false,
             });
         } else {
-            // 二：长词使用 FULLTEXT 索引
+            //长词使用 FULLTEXT 索引
             console.log(`[SEARCH] 使用 FULLTEXT 模式: ${replacedQ}`);
 
             // 动态构建 WHERE 条件：只有 wantPublishedOnly 为 true 时才加 AND status = '已发布'
