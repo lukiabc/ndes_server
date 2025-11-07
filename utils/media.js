@@ -7,7 +7,7 @@ const MEDIA_BASE_URL = 'http://localhost:3000/uploads/';
 const UPLOADS_DIR = path.join(__dirname, '../uploads');
 
 /**
- * 从 HTML 内容中提取属于本系统的本地媒体文件名（支持 img / video / audio）
+ * 从 HTML 内容中提取属于本系统的本地媒体文件名
  * @param {string} htmlContent - 富文本 HTML 字符串
  * @returns {Promise<Array<{ filename: string, tag: string }>>}
  */
@@ -105,3 +105,5 @@ async function extractLocalMediaFilenames(htmlContent) {
 
     return validMedia;
 }
+
+module.exports = { extractLocalMediaFilenames };

@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const upload = require('../utils/upload');
 const { performReview } = require('../utils/ai-review');
+const { extractLocalMediaFilenames } = require('../utils/media');
 
+const { Sequelize } = require('sequelize');
+const { filter } = require('../utils/sensitive');
+const MEDIA_BASE_URL = 'http://localhost:3000/uploads/';
 const {
     sequelize,
     Article,
@@ -11,8 +15,6 @@ const {
     Reviews,
     ArticleVersion,
 } = require('../utils/db');
-const { Sequelize } = require('sequelize');
-const { filter } = require('../utils/sensitive');
 
 // 根据状态查询文章
 router.get('/status/:status', async (req, res) => {
@@ -131,7 +133,7 @@ router.get('/details/:article_id', async (req, res) => {
 });
 
 // 创建文章
-router.post('/create', upload('file', 10), async (req, res) => {
+router.post('/create', async (req, res) => {
     const { title, category_id, content, source, editor } = req.body;
     const as = req.query.as === 'draft' ? 'draft' : 'submit'; // 草稿 or 提交
     const scheduledTimeStr = req.body.scheduled_publish_date;
@@ -226,27 +228,44 @@ router.post('/create', upload('file', 10), async (req, res) => {
         );
 
         // 处理媒体文件
+        // 创建文章 - 替换原来的媒体处理逻辑
         let uploadedMedia = [];
-        if (req.files && req.files.length > 0) {
-            const mediaList = req.files.map((file) => ({
-                article_id: article.article_id,
-                media_type: file.mimetype.startsWith('image')
-                    ? 'image'
-                    : 'video',
-                media_url: `http://localhost:3000/uploads/${file.filename}`,
-                description: file.originalname,
-                created_at: new Date(),
-            }));
-            const records = await Media.bulkCreate(mediaList, {
-                transaction,
-                returning: true,
-            });
-            uploadedMedia = records.map((r) => ({
-                media_id: r.media_id,
-                media_type: r.media_type,
-                media_url: r.media_url,
-                description: r.description,
-            }));
+
+        // 从 HTML 中提取媒体
+        if (content) {
+            try {
+                const mediaFiles = await extractLocalMediaFilenames(content);
+                if (mediaFiles.length > 0) {
+                    const mediaList = mediaFiles.map(({ filename, tag }) => ({
+                        article_id: article.article_id,
+                        media_type:
+                            tag === 'img'
+                                ? 'image'
+                                : tag === 'video'
+                                ? 'video'
+                                : tag === 'audio'
+                                ? 'audio'
+                                : 'attachment',
+                        media_url: `${MEDIA_BASE_URL}${filename}`,
+                        description: filename,
+                        created_at: new Date(),
+                    }));
+
+                    const records = await Media.bulkCreate(mediaList, {
+                        transaction,
+                        returning: true,
+                    });
+
+                    uploadedMedia = records.map((r) => ({
+                        media_id: r.media_id,
+                        media_type: r.media_type,
+                        media_url: r.media_url,
+                        description: r.description,
+                    }));
+                }
+            } catch (err) {
+                console.warn('解析 HTML 媒体失败:', err);
+            }
         }
 
         await transaction.commit();
@@ -280,7 +299,7 @@ router.post('/create', upload('file', 10), async (req, res) => {
 });
 
 // 编辑文章
-router.put('/edit/:article_id', upload('file', 10), async (req, res) => {
+router.put('/edit/:article_id', async (req, res) => {
     const article_id = parseInt(req.params.article_id);
     const { title, category_id, content, source, editor, action } = req.body;
     const act = action || 'submit';
@@ -370,23 +389,40 @@ router.put('/edit/:article_id', upload('file', 10), async (req, res) => {
 
         // 添加新媒体
         let uploadedMedia = [];
-        if (req.files && req.files.length > 0) {
-            const mediaList = req.files.map((file) => ({
-                article_id,
-                media_type: file.mimetype,
-                media_url: `http://localhost:3000/uploads/${file.filename}`,
-                description: file.originalname,
-            }));
-            const records = await Media.bulkCreate(mediaList, {
-                transaction,
-                returning: true,
-            });
-            uploadedMedia = records.map((r, index) => ({
-                media_id: r.media_id,
-                media_url: r.media_url,
-                description: r.description,
-                filename: req.files[index].filename,
-            }));
+        if (content) {
+            try {
+                const mediaFiles = await extractLocalMediaFilenames(content);
+                if (mediaFiles.length > 0) {
+                    const mediaList = mediaFiles.map(({ filename, tag }) => ({
+                        article_id,
+                        media_type:
+                            tag === 'img'
+                                ? 'image'
+                                : tag === 'video'
+                                ? 'video'
+                                : tag === 'audio'
+                                ? 'audio'
+                                : 'attachment',
+                        media_url: `${MEDIA_BASE_URL}${filename}`,
+                        description: filename,
+                        created_at: new Date(),
+                    }));
+
+                    const records = await Media.bulkCreate(mediaList, {
+                        transaction,
+                        returning: true,
+                    });
+
+                    uploadedMedia = records.map((r, index) => ({
+                        media_id: r.media_id,
+                        media_url: r.media_url,
+                        description: r.description,
+                        filename: mediaFiles[index].filename,
+                    }));
+                }
+            } catch (err) {
+                console.warn('编辑时解析 HTML 媒体失败:', err);
+            }
         }
 
         // 记录审核日志
