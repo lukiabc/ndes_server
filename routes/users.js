@@ -74,7 +74,7 @@ router.get('/details/:userId', async (req, res) => {
 });
 
 // 更新用户信息
-router.put('/update/:userId', upload.single('avatar'), async (req, res) => {
+router.put('/update/:userId', upload('avatar'), async (req, res) => {
     const { userId } = req.params;
     const { username, email } = req.body;
     const updated_at = new Date();

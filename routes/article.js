@@ -131,7 +131,7 @@ router.get('/details/:article_id', async (req, res) => {
 });
 
 // 创建文章
-router.post('/create', upload.array('file', 10), async (req, res) => {
+router.post('/create', upload('file', 10), async (req, res) => {
     const { title, category_id, content, source, editor } = req.body;
     const as = req.query.as === 'draft' ? 'draft' : 'submit'; // 草稿 or 提交
     const scheduledTimeStr = req.body.scheduled_publish_date;
@@ -280,7 +280,7 @@ router.post('/create', upload.array('file', 10), async (req, res) => {
 });
 
 // 编辑文章
-router.put('/edit/:article_id', upload.array('file', 10), async (req, res) => {
+router.put('/edit/:article_id', upload('file', 10), async (req, res) => {
     const article_id = parseInt(req.params.article_id);
     const { title, category_id, content, source, editor, action } = req.body;
     const act = action || 'submit';
