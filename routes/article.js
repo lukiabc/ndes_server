@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const upload = require('../utils/upload');
 const { performReview } = require('../utils/ai-review');
 const { extractLocalMediaFilenames } = require('../utils/media');
+const { Op } = require('sequelize');
 
 const { Sequelize } = require('sequelize');
 const { filter } = require('../utils/sensitive');
@@ -228,7 +228,6 @@ router.post('/create', async (req, res) => {
         );
 
         // 处理媒体文件
-        // 创建文章 - 替换原来的媒体处理逻辑
         let uploadedMedia = [];
 
         // 从 HTML 中提取媒体
@@ -546,22 +545,43 @@ router.get('/list', async (req, res) => {
     }
 });
 
-// 获取指定分类下的文章列表
+// 获取指定子分类下的文章列表
 router.get('/list/:category_id', async (req, res) => {
     const category_id = parseInt(req.params.category_id);
     if (isNaN(category_id)) {
         return res.status(400).json({ error: '无效的分类 ID' });
     }
 
-    // 分页参数
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const pageSize = Math.min(
-        50,
-        Math.max(1, parseInt(req.query.pageSize) || 10)
-    );
-    const offset = (page - 1) * pageSize;
+    if (!Number.isInteger(category_id) || category_id <= 0) {
+        return res.status(400).json({ error: '分类 ID 必须为正整数' });
+    }
 
     try {
+        // 检查该分类是否存在，且 parent_id 不为 null
+        const category = await Category.findByPk(category_id, {
+            attributes: ['category_id', 'parent_id', 'category_name'],
+        });
+
+        if (!category) {
+            return res.status(404).json({ error: '分类不存在' });
+        }
+
+        if (category.parent_id === null) {
+            return res.status(400).json({
+                error: '该分类为顶级分类，不支持直接查询文章列表',
+                detail: '请使用子分类 ID',
+            });
+        }
+
+        // 分页参数
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const pageSize = Math.min(
+            50,
+            Math.max(1, parseInt(req.query.pageSize) || 10)
+        );
+        const offset = (page - 1) * pageSize;
+
+        // 查询文章
         const { count, rows } = await Article.findAndCountAll({
             where: {
                 category_id: category_id,
@@ -595,7 +615,6 @@ router.get('/list/:category_id', async (req, res) => {
             distinct: true,
         });
 
-        // 返回结果包含总数量、当前页码和文章列表
         res.json({
             total: count,
             page: page,
@@ -608,6 +627,99 @@ router.get('/list/:category_id', async (req, res) => {
             error: '查询失败',
             detail:
                 error.name === 'SequelizeDatabaseError' ? error.message : null,
+        });
+    }
+});
+
+// 获取指定父分类下所有子分类的文章列表
+router.get('/listByParent/:parent_id', async (req, res) => {
+    const parent_id = parseInt(req.params.parent_id, 10);
+
+    if (!Number.isInteger(parent_id) || parent_id <= 0) {
+        return res.status(400).json({ error: '父分类 ID 必须为正整数' });
+    }
+
+    try {
+        // 可选：检查父分类是否存在（增强健壮性）
+        const parentCategory = await Category.findByPk(parent_id);
+        if (!parentCategory) {
+            return res.status(404).json({ error: '父分类不存在' });
+        }
+
+        // 第一步：获取该父分类下的所有直接子分类 ID
+        const subCategories = await Category.findAll({
+            where: { parent_id: parent_id },
+            attributes: ['category_id'],
+        });
+
+        const subCategoryIds = subCategories.map((c) => c.category_id);
+
+        // 如果没有子分类，直接返回空
+        if (subCategoryIds.length === 0) {
+            return res.json({
+                total: 0,
+                page: 1,
+                pageSize: 10,
+                list: [],
+            });
+        }
+
+        // 第二步：分页参数
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const pageSize = Math.min(
+            50,
+            Math.max(1, parseInt(req.query.pageSize, 10) || 10)
+        );
+        const offset = (page - 1) * pageSize;
+
+        // 第三步：查询这些子分类下的所有文章
+        const { count, rows } = await Article.findAndCountAll({
+            where: {
+                category_id: { [Op.in]: subCategoryIds },
+            },
+            include: [
+                {
+                    model: Category,
+                    as: 'Category',
+                    attributes: ['category_id', 'category_name'],
+                    include: [
+                        {
+                            model: Category,
+                            as: 'ParentCategory',
+                            attributes: ['category_id', 'category_name'],
+                        },
+                    ],
+                },
+                {
+                    model: Media,
+                    attributes: [
+                        'media_id',
+                        'media_type',
+                        'media_url',
+                        'description',
+                    ],
+                },
+            ],
+            order: [['publish_date', 'DESC']],
+            limit: pageSize,
+            offset: offset,
+            distinct: true,
+        });
+
+        res.json({
+            total: count,
+            page,
+            pageSize,
+            list: rows,
+        });
+    } catch (error) {
+        console.error('查询父分类下文章失败:', error);
+        res.status(500).json({
+            error: '服务器内部错误',
+            detail:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
         });
     }
 });
