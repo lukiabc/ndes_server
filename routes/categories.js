@@ -72,6 +72,51 @@ router.get('/list', async (req, res) => {
     }
 });
 
+// 根据分类ID获取所有子分类（递归）
+router.get('/children/:category_id', async (req, res) => {
+    const { category_id } = req.params;
+
+    // 参数校验
+    const id = parseInt(category_id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ error: '分类ID必须为正整数' });
+    }
+
+    try {
+        // 检查父分类是否存在
+        const parentExists = await Category.findByPk(id);
+        if (!parentExists) {
+            return res.status(404).json({ error: '父分类不存在' });
+        }
+
+        // 递归获取所有子分类
+        const getAllChildren = async (parentId) => {
+            const children = await Category.findAll({
+                where: { parent_id: parentId },
+                order: [['sort_order', 'ASC']],
+            });
+
+            let result = [...children];
+            for (const child of children) {
+                const grandchildren = await getAllChildren(child.category_id);
+                result = result.concat(grandchildren);
+            }
+            return result;
+        };
+
+        const allChildren = await getAllChildren(id);
+
+        res.json({
+            code: 200,
+            total: allChildren.length,
+            data: allChildren,
+        });
+    } catch (error) {
+        console.error('获取子分类失败:', error);
+        res.status(500).json({ error: '服务器内部错误' });
+    }
+});
+
 // 创建分类
 router.post('/create', async (req, res) => {
     const { category_name, parent_id } = req.body;

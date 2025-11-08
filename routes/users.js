@@ -130,7 +130,7 @@ router.post('/login', async (req, res) => {
         const token = sign(
             { id: user.user_id, role: user.role_id },
             'suibian',
-            { expiresIn: '1h' }
+            { expiresIn: '7d' }
         );
 
         const userInfo = {

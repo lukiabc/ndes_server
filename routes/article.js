@@ -498,6 +498,7 @@ router.get('/list', async (req, res) => {
 
     try {
         const result = await Article.findAndCountAll({
+            distinct: true,
             include: [
                 {
                     model: Category,
@@ -524,14 +525,13 @@ router.get('/list', async (req, res) => {
             order: [['publish_date', 'DESC']],
             limit: pageSize,
             offset: offset,
-            subQuery: false,
         });
 
         res.json({
             total: result.count,
             page,
             pageSize,
-            list: result.rows, // 使用 list 更语义化
+            list: result.rows,
         });
     } catch (error) {
         console.error('获取文章列表失败:', error);
@@ -640,13 +640,13 @@ router.get('/listByParent/:parent_id', async (req, res) => {
     }
 
     try {
-        // 可选：检查父分类是否存在（增强健壮性）
+        // 检查父分类是否存在
         const parentCategory = await Category.findByPk(parent_id);
         if (!parentCategory) {
             return res.status(404).json({ error: '父分类不存在' });
         }
 
-        // 第一步：获取该父分类下的所有直接子分类 ID
+        // 获取该父分类下的所有直接子分类 ID
         const subCategories = await Category.findAll({
             where: { parent_id: parent_id },
             attributes: ['category_id'],
@@ -664,7 +664,7 @@ router.get('/listByParent/:parent_id', async (req, res) => {
             });
         }
 
-        // 第二步：分页参数
+        // 分页参数
         const page = Math.max(1, parseInt(req.query.page, 10) || 1);
         const pageSize = Math.min(
             50,
@@ -672,7 +672,7 @@ router.get('/listByParent/:parent_id', async (req, res) => {
         );
         const offset = (page - 1) * pageSize;
 
-        // 第三步：查询这些子分类下的所有文章
+        // 查询这些子分类下的所有文章
         const { count, rows } = await Article.findAndCountAll({
             where: {
                 category_id: { [Op.in]: subCategoryIds },
