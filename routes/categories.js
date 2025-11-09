@@ -62,6 +62,51 @@ router.get('/search', async (req, res) => {
     }
 });
 
+// 根据子分类ID获取其直接父分类
+router.get('/parent/:category_id', async (req, res) => {
+    const { category_id } = req.params;
+
+    // 参数校验
+    const id = parseInt(category_id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ error: '分类ID必须为正整数' });
+    }
+
+    try {
+        // 查找子分类，获取 parent_id
+        const child = await Category.findByPk(id, {
+            attributes: ['parent_id'] // 只查需要的字段，提升性能
+        });
+
+        if (!child) {
+            return res.status(404).json({ error: '子分类不存在' });
+        }
+
+        if (child.parent_id === null) {
+            return res.json({
+                code: 200,
+                data: null,
+                message: '该分类为顶级分类，无父分类'
+            });
+        }
+
+        // 查询父分类完整信息
+        const parent = await Category.findByPk(child.parent_id);
+        if (!parent) {
+            // 理论上不会发生（因外键约束），但防御性编程保留
+            return res.status(500).json({ error: '数据异常：父分类不存在' });
+        }
+
+        res.json({
+            code: 200,
+            data: parent
+        });
+    } catch (error) {
+        console.error('获取父分类失败:', error);
+        res.status(500).json({ error: '服务器内部错误' });
+    }
+});
+
 // 获取分类列表
 router.get('/list', async (req, res) => {
     try {
