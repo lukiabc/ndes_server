@@ -46,7 +46,14 @@ module.exports = (sequelize, DataTypes) => {
                 comment: '文章内容',
             },
             status: {
-                type: DataTypes.ENUM('草稿', '待审', '待发布', '已发布'),
+                type: DataTypes.ENUM(
+                    '草稿',
+                    '待审',
+                    '待发布',
+                    '已发布',
+                    '退回修订',
+                    '拒绝'
+                ),
                 defaultValue: '草稿',
                 comment: '稿件状态',
             },

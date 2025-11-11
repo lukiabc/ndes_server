@@ -16,6 +16,46 @@ const {
     ArticleVersion,
 } = require('../utils/db');
 
+// 获取所有文章状态及其数量统计
+router.get('/status-counts', async (req, res) => {
+    try {
+        const counts = await Article.findAll({
+            attributes: [
+                'status',
+                [Sequelize.fn('COUNT', Sequelize.col('article_id')), 'count'],
+            ],
+            group: ['status'],
+            raw: true,
+        });
+        const allStatuses = [
+            '草稿',
+            '待审',
+            '待发布',
+            '已发布',
+            '退回修订',
+            '拒绝',
+        ];
+        const result = allStatuses.map((status) => {
+            const found = counts.find((item) => item.status === status);
+            return {
+                status,
+                count: found ? parseInt(found.count, 10) : 0,
+            };
+        });
+
+        res.json(result);
+    } catch (error) {
+        console.error('获取状态统计失败:', error);
+        res.status(500).json({
+            error: '服务器内部错误',
+            detail:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
+        });
+    }
+});
+
 // 根据状态查询文章
 router.get('/status/:status', async (req, res) => {
     const { status } = req.params;
@@ -153,20 +193,20 @@ router.post('/create', async (req, res) => {
     if (as !== 'draft') {
         try {
             const category = await Category.findByPk(categoryId, {
-                attributes: ['category_id', 'category_name', 'parent_id']
+                attributes: ['category_id', 'category_name', 'parent_id'],
             });
 
             if (!category) {
                 return res.status(400).json({
                     error: '分类不存在',
-                    detail: `分类ID ${categoryId} 不存在`
+                    detail: `分类ID ${categoryId} 不存在`,
                 });
             }
 
             if (category.parent_id === null) {
                 return res.status(400).json({
                     error: '不能使用根分类发布文章',
-                    detail: `分类"${category.category_name}"是根分类，请选择具体的子分类`
+                    detail: `分类"${category.category_name}"是根分类，请选择具体的子分类`,
                 });
             }
 
@@ -174,7 +214,7 @@ router.post('/create', async (req, res) => {
         } catch (err) {
             return res.status(500).json({
                 error: '分类校验失败',
-                detail: err.message
+                detail: err.message,
             });
         }
     }
@@ -188,7 +228,10 @@ router.post('/create', async (req, res) => {
     if (as !== 'draft') {
         console.log('\n========== [DEBUG] 内容审核开始 ==========');
         console.log('[输入] 标题:', title);
-        console.log('[输入] 内容:', content.substring(0, 100) + (content.length > 100 ? '...' : ''));
+        console.log(
+            '[输入] 内容:',
+            content.substring(0, 100) + (content.length > 100 ? '...' : '')
+        );
 
         if (scheduledTimeStr) {
             // 定时发布：需要审核
@@ -212,7 +255,10 @@ router.post('/create', async (req, res) => {
             // 定时发布审核通过才设置发布时间
             if (status === '待发布') {
                 publish_date = null; // 定时发布时不设置当前时间
-                console.log('[定时发布] ✓ 审核通过，已设置定时发布:', scheduled_publish_date);
+                console.log(
+                    '[定时发布] ✓ 审核通过，已设置定时发布:',
+                    scheduled_publish_date
+                );
             } else if (status === '拒绝') {
                 scheduled_publish_date = null; // 拒绝时清空定时发布时间
                 console.log('[定时发布] ❌ 审核拒绝，文章将标记为拒绝状态');
@@ -393,20 +439,20 @@ router.put('/edit/:article_id', async (req, res) => {
     if (act !== 'save') {
         try {
             const category = await Category.findByPk(categoryId, {
-                attributes: ['category_id', 'category_name', 'parent_id']
+                attributes: ['category_id', 'category_name', 'parent_id'],
             });
 
             if (!category) {
                 return res.status(400).json({
                     error: '分类不存在',
-                    detail: `分类ID ${categoryId} 不存在`
+                    detail: `分类ID ${categoryId} 不存在`,
                 });
             }
 
             if (category.parent_id === null) {
                 return res.status(400).json({
                     error: '不能使用根分类发布文章',
-                    detail: `分类"${category.category_name}"是根分类，请选择具体的子分类`
+                    detail: `分类"${category.category_name}"是根分类，请选择具体的子分类`,
                 });
             }
 
@@ -414,7 +460,7 @@ router.put('/edit/:article_id', async (req, res) => {
         } catch (err) {
             return res.status(500).json({
                 error: '分类校验失败',
-                detail: err.message
+                detail: err.message,
             });
         }
     }
@@ -427,7 +473,10 @@ router.put('/edit/:article_id', async (req, res) => {
     if (act !== 'save') {
         console.log('\n========== [DEBUG] 编辑文章 - 内容审核开始 ==========');
         console.log('[输入] 标题:', title);
-        console.log('[输入] 内容:', content.substring(0, 100) + (content.length > 100 ? '...' : ''));
+        console.log(
+            '[输入] 内容:',
+            content.substring(0, 100) + (content.length > 100 ? '...' : '')
+        );
 
         if (act === 'schedule') {
             // 定时发布：需要审核
@@ -448,7 +497,10 @@ router.put('/edit/:article_id', async (req, res) => {
 
             if (status === '待发布') {
                 publish_date = null;
-                console.log('[定时发布] ✓ 审核通过，已设置定时发布:', scheduled_publish_date);
+                console.log(
+                    '[定时发布] ✓ 审核通过，已设置定时发布:',
+                    scheduled_publish_date
+                );
             } else if (status === '拒绝') {
                 scheduled_publish_date = null;
                 console.log('[定时发布] ❌ 审核拒绝，文章将标记为拒绝状态');
