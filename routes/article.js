@@ -61,10 +61,17 @@ router.get('/status/:status', async (req, res) => {
     const { status } = req.params;
 
     //  校验状态合法性
-    const validStatuses = ['草稿', '待审', '已发布'];
+    const validStatuses = [
+        '草稿',
+        '待审',
+        '待发布',
+        '已发布',
+        '退回修订',
+        '拒绝',
+    ];
     if (!validStatuses.includes(status)) {
         return res.status(400).json({
-            error: '无效的状态值，仅支持：草稿、待审、已发布',
+            error: '无效的状态值，仅支持：草稿、待审、待发布、已发布、退回修订、拒绝',
         });
     }
 
@@ -942,17 +949,75 @@ router.get('/searchAll', async (req, res) => {
     );
     const offset = (page - 1) * pageSize;
 
+    // ===== 辅助函数（纯文本处理 + 句子提取）=====
+    function stripHtml(html) {
+        if (!html) return '';
+        // 移除所有 HTML 标签，替换为单个空格
+        return html
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function extractSentenceWithKeyword(text, keyword) {
+        if (!text || !keyword) return '';
+
+        // 支持的句子结束符（中文+英文）
+        const sentenceEndings = /[。.？?!！]/g;
+        const sentences = [];
+        let start = 0;
+        let match;
+
+        // 重置 lastIndex（防止全局正则残留状态）
+        sentenceEndings.lastIndex = 0;
+
+        while ((match = sentenceEndings.exec(text)) !== null) {
+            const end = match.index + 1;
+            const sentence = text.substring(start, end).trim();
+            if (sentence) sentences.push(sentence);
+            start = end;
+        }
+
+        // 处理最后一段（可能没有结束标点）
+        if (start < text.length) {
+            const lastPart = text.substring(start).trim();
+            if (lastPart) sentences.push(lastPart);
+        }
+
+        // 转义关键词用于安全正则匹配
+        const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escapedKeyword, 'i'); // 不区分大小写
+
+        // 查找第一个包含关键词的句子
+        for (const sentence of sentences) {
+            if (regex.test(sentence)) {
+                return sentence;
+            }
+        }
+
+        // 降级：返回前80字符
+        return text.length > 80 ? text.substring(0, 80) + '...' : text;
+    }
+
+    // 高亮函数（支持正则特殊字符转义）
+    const escapeRegExp = (string) => {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    };
+
+    const highlight = (txt, key) => {
+        if (!txt || !key) return txt || '';
+        const escapedKey = escapeRegExp(key);
+        const regex = new RegExp(`(${escapedKey})`, 'gi');
+        return txt.replace(regex, '<mark>$1</mark>');
+    };
+    // ============================================
+
     try {
         let results;
-
-        // 判断是否为短词（中文单字、双字 或 英文短词）
         const isShortWord = replacedQ.length <= 2;
-
-        // 只查已发布文章
         const wantPublishedOnly = req.query.status === 'published';
 
         if (isShortWord) {
-            //短词使用 LIKE 模糊匹配
             console.log(`[SEARCH] 使用 LIKE 模式搜索短词: ${replacedQ}`);
 
             const whereConditions = {
@@ -1006,7 +1071,8 @@ router.get('/searchAll', async (req, res) => {
                     'content',
                     'publish_date',
                     'status',
-                    // 手动加一个 score 字段用于排序
+                    'source',
+                    'editor',
                     [
                         Sequelize.literal(`
                             (CASE
@@ -1028,10 +1094,8 @@ router.get('/searchAll', async (req, res) => {
                 subQuery: false,
             });
         } else {
-            //长词使用 FULLTEXT 索引
             console.log(`[SEARCH] 使用 FULLTEXT 模式: ${replacedQ}`);
 
-            // 动态构建 WHERE 条件：只有 wantPublishedOnly 为 true 时才加 AND status = '已发布'
             const statusCondition = wantPublishedOnly
                 ? "AND status = '已发布'"
                 : '';
@@ -1070,6 +1134,8 @@ router.get('/searchAll', async (req, res) => {
                     'content',
                     'publish_date',
                     'status',
+                    'source',
+                    'editor',
                     [
                         Sequelize.literal(
                             `MATCH(title, content) AGAINST('${replacedQ}')`
@@ -1084,27 +1150,24 @@ router.get('/searchAll', async (req, res) => {
             });
         }
 
-        // 高亮函数（支持正则特殊字符转义）
-        const escapeRegExp = (string) => {
-            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        };
-
-        const highlight = (txt, key) => {
-            const escapedKey = escapeRegExp(key);
-            const regex = new RegExp(`(${escapedKey})`, 'gi');
-            return (txt || '').replace(regex, '<mark>$1</mark>');
-        };
-
-        // 处理结果：高亮 + 截取摘要
+        // 处理结果：提取句子 + 高亮
         const list = results.rows.map((row) => {
             const data = row.toJSON();
+
+            //去除 HTML 标签
+            const plainText = stripHtml(data.content || '');
+
+            // 提取包含关键词的完整句子
+            const sentence = extractSentenceWithKeyword(plainText, replacedQ);
+
+            //  高亮关键词
+            const highlightedTitle = highlight(data.title || '', replacedQ);
+            const highlightedContent = highlight(sentence, replacedQ);
+
             return {
                 ...data,
-                title: highlight(data.title, replacedQ),
-                content: highlight(
-                    data.content ? data.content.substring(0, 200) + '...' : '',
-                    replacedQ
-                ),
+                title: highlightedTitle,
+                content: highlightedContent, //  只返回命中的句子
             };
         });
 
