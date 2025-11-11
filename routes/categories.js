@@ -73,33 +73,31 @@ router.get('/parent/:category_id', async (req, res) => {
     }
 
     try {
-        // 查找子分类，获取 parent_id
-        const child = await Category.findByPk(id, {
-            attributes: ['parent_id'] // 只查需要的字段，提升性能
-        });
-
-        if (!child) {
-            return res.status(404).json({ error: '子分类不存在' });
+        // 先查当前分类是否存在
+        const currentCategory = await Category.findByPk(id);
+        if (!currentCategory) {
+            return res.status(404).json({ error: '分类不存在' });
         }
 
-        if (child.parent_id === null) {
-            return res.json({
-                code: 200,
-                data: null,
-                message: '该分类为顶级分类，无父分类'
-            });
-        }
+        let parentCategory;
 
-        // 查询父分类完整信息
-        const parent = await Category.findByPk(child.parent_id);
-        if (!parent) {
-            // 理论上不会发生（因外键约束），但防御性编程保留
-            return res.status(500).json({ error: '数据异常：父分类不存在' });
+        if (currentCategory.parent_id === null) {
+            // 当前分类是顶级分类（父分类）→ 返回自己
+            parentCategory = currentCategory;
+        } else {
+            // 当前分类是子分类 → 查找其父分类
+            parentCategory = await Category.findByPk(currentCategory.parent_id);
+            if (!parentCategory) {
+                return res
+                    .status(500)
+                    .json({ error: '数据异常：父分类不存在' });
+            }
         }
 
         res.json({
             code: 200,
-            data: parent
+            data: parentCategory, // 总是返回一个分类对象
+            message: 'success',
         });
     } catch (error) {
         console.error('获取父分类失败:', error);
