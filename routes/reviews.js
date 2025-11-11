@@ -8,13 +8,38 @@ router.post('/:article_id', async (req, res) => {
     const article_id = parseInt(req.params.article_id);
     const { reviewer, review_result, review_comments } = req.body;
 
+    console.log('\n========== [DEBUG] 人工审核开始 ==========');
+    console.log('[审核] 文章ID:', article_id);
+    console.log('[审核] 审核人:', reviewer);
+    console.log('[审核] 审核结果:', review_result);
+    console.log('[审核] 审核意见:', review_comments);
+
     // 校验参数
-    if (!['通过', '退回修改', '拒绝'].includes(review_result)) {
-        return res.status(400).json({ error: '审核结果非法' });
+    if (!['通过', '拒绝', '退回修订'].includes(review_result)) {
+        console.log('[审核] ❌ 审核结果非法');
+        console.log('========== [DEBUG] 人工审核结束 ==========\n');
+        return res.status(400).json({
+            error: '审核结果非法，仅支持：通过、拒绝、退回修订'
+        });
     }
 
     const t = await sequelize.transaction();
     try {
+        // 获取文章信息
+        const article = await Article.findOne({
+            where: { article_id, status: '待审' },
+            transaction: t
+        });
+
+        if (!article) {
+            console.log('[审核] ❌ 文章不存在或状态不是待审');
+            console.log('========== [DEBUG] 人工审核结束 ==========\n');
+            throw new Error('文章不存在或状态不是待审');
+        }
+
+        console.log('[审核] 文章标题:', article.title);
+        console.log('[审核] 定时发布时间:', article.scheduled_publish_date);
+
         // 新增审核记录
         await Reviews.create(
             {
@@ -25,23 +50,71 @@ router.post('/:article_id', async (req, res) => {
             },
             { transaction: t }
         );
+        console.log('[审核] ✓ 审核记录已保存');
 
-        // 文章状态映射
-        const statusMap = { 通过: '已发布', 退回修改: '草稿', 拒绝: '草稿' };
-        const newStatus = statusMap[review_result];
+        let newStatus = '';
+        let publish_date = null;
+
+        // 根据审核结果决定文章状态
+        if (review_result === '通过') {
+            // 检查是否有定时发布时间
+            if (article.scheduled_publish_date) {
+                const scheduledTime = new Date(article.scheduled_publish_date);
+                const now = new Date();
+
+                console.log('[审核] 对比时间 - 定时发布:', scheduledTime.toISOString());
+                console.log('[审核] 对比时间 - 当前时间:', now.toISOString());
+
+                if (scheduledTime > now) {
+                    // 定时发布时间还未到 -> 待发布
+                    newStatus = '待发布';
+                    console.log('[审核] ✓ 审核通过，定时发布时间未到，状态设为：待发布');
+                } else {
+                    // 定时发布时间已过 -> 立即发布
+                    newStatus = '已发布';
+                    publish_date = now;
+                    console.log('[审核] ✓ 审核通过，定时发布时间已到，立即发布');
+                }
+            } else {
+                // 没有定时发布时间 -> 立即发布
+                newStatus = '已发布';
+                publish_date = new Date();
+                console.log('[审核] ✓ 审核通过，无定时发布，立即发布');
+            }
+        } else if (review_result === '拒绝') {
+            newStatus = '拒绝';
+            console.log('[审核] ❌ 审核拒绝，状态设为：拒绝');
+        } else if (review_result === '退回修订') {
+            newStatus = '退回修订';
+            console.log('[审核] ↩️  退回修订，状态设为：退回修订');
+        }
 
         // 更新文章状态
-        const [rows] = await Article.update(
-            { status: newStatus },
-            { where: { article_id, status: '待审' }, transaction: t }
-        );
-        if (rows === 0) throw new Error('文章状态不符或不存在');
+        const updateData = { status: newStatus };
+        if (publish_date) {
+            updateData.publish_date = publish_date;
+            console.log('[审核] 设置发布时间:', publish_date.toISOString());
+        }
+
+        await article.update(updateData, { transaction: t });
+        console.log('[审核] ✓ 文章状态已更新');
+
         await t.commit();
 
-        res.json({ message: '审核完成', review_result, newStatus });
+        console.log('[审核结果] 最终状态:', newStatus);
+        console.log('========== [DEBUG] 人工审核结束 ==========\n');
+
+        res.json({
+            message: '审核完成',
+            review_result,
+            newStatus,
+            publish_date
+        });
     } catch (e) {
         await t.rollback();
-        res.status(500).json({ error: '更新失败: ' + e.message });
+        console.error('[审核] ❌ 审核失败:', e.message);
+        console.log('========== [DEBUG] 人工审核结束 ==========\n');
+        res.status(500).json({ error: '审核失败: ' + e.message });
     }
 });
 

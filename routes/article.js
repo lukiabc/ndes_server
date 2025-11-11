@@ -149,52 +149,100 @@ router.post('/create', async (req, res) => {
         return res.status(400).json({ error: '无效的分类 ID' });
     }
 
-    // 敏感词检测（本地规则引擎初筛）
-    const titleFilter = filter(title);
-    const contentFilter = filter(content);
+    // 非草稿模式：校验分类必须是子分类（不能是根分类）
+    if (as !== 'draft') {
+        try {
+            const category = await Category.findByPk(categoryId, {
+                attributes: ['category_id', 'category_name', 'parent_id']
+            });
 
-    if (titleFilter.hitWords.length > 0 || contentFilter.hitWords.length > 0) {
-        const hitWords = [
-            ...new Set([...titleFilter.hitWords, ...contentFilter.hitWords]),
-        ];
-        return res.status(400).json({
-            error: '内容包含敏感词，禁止提交',
-            hitWords,
-        });
+            if (!category) {
+                return res.status(400).json({
+                    error: '分类不存在',
+                    detail: `分类ID ${categoryId} 不存在`
+                });
+            }
+
+            if (category.parent_id === null) {
+                return res.status(400).json({
+                    error: '不能使用根分类发布文章',
+                    detail: `分类"${category.category_name}"是根分类，请选择具体的子分类`
+                });
+            }
+
+            console.log('[分类校验] ✓ 分类有效，父分类ID:', category.parent_id);
+        } catch (err) {
+            return res.status(500).json({
+                error: '分类校验失败',
+                detail: err.message
+            });
+        }
     }
 
     let status = '草稿';
     let scheduled_publish_date = null;
     let publish_date = null;
-    let reviewLog = null; // 审核日志
+    let reviewLog = null;
 
     // 非草稿 触发 AI 审核 或 设置定时发布
     if (as !== 'draft') {
+        console.log('\n========== [DEBUG] 内容审核开始 ==========');
+        console.log('[输入] 标题:', title);
+        console.log('[输入] 内容:', content.substring(0, 100) + (content.length > 100 ? '...' : ''));
+
         if (scheduledTimeStr) {
+            // 定时发布：需要审核
             scheduled_publish_date = new Date(scheduledTimeStr);
             if (
                 isNaN(scheduled_publish_date.getTime()) ||
                 scheduled_publish_date <= new Date()
             ) {
+                console.log('[定时发布] ❌ 定时发布时间无效');
+                console.log('========== [DEBUG] 内容审核结束 ==========\n');
                 return res
                     .status(400)
                     .json({ error: '定时发布时间必须晚于当前时间' });
             }
-            status = '待发布';
+
+            console.log('[定时发布] 开始内容审核（定时发布模式）...');
+            const decision = await performReview(title, content, true); // 第三个参数表示定时发布
+            status = decision.status;
+            reviewLog = decision.reviewLog;
+
+            // 定时发布审核通过才设置发布时间
+            if (status === '待发布') {
+                publish_date = null; // 定时发布时不设置当前时间
+                console.log('[定时发布] ✓ 审核通过，已设置定时发布:', scheduled_publish_date);
+            } else if (status === '拒绝') {
+                scheduled_publish_date = null; // 拒绝时清空定时发布时间
+                console.log('[定时发布] ❌ 审核拒绝，文章将标记为拒绝状态');
+            } else if (status === '待审') {
+                console.log('[定时发布] ⚠️  审核疑似违规，需要人工审核');
+            }
         } else {
-            // 执行审核
-            try {
-                const decision = await performReview(title, content); // 决策逻辑
-                status = decision.status;
-                publish_date = status === '已发布' ? new Date() : null;
-                reviewLog = decision.reviewLog;
-            } catch (err) {
-                return res.status(400).json({
-                    error: '内容审核未通过',
-                    detail: err.message,
-                });
+            // 投稿发布：需要审核
+            console.log('[投稿发布] 开始内容审核...');
+            const decision = await performReview(title, content, false); // 非定时发布
+            status = decision.status;
+            publish_date = status === '已发布' ? new Date() : null;
+            reviewLog = decision.reviewLog;
+
+            if (status === '已发布') {
+                console.log('[投稿发布] ✅ 审核完全通过，文章将自动发布');
+            } else if (status === '待审') {
+                console.log('[投稿发布] ⚠️  审核疑似违规，需要人工审核');
+            } else if (status === '拒绝') {
+                console.log('[投稿发布] ❌ 审核拒绝，文章将标记为拒绝状态');
             }
         }
+
+        console.log('[审核结果] 状态:', status);
+        console.log('[审核结果] 备注:', reviewLog.review_comments);
+        console.log('========== [DEBUG] 内容审核结束 ==========\n');
+    } else {
+        console.log('\n========== [DEBUG] 草稿模式 ==========');
+        console.log('[草稿模式] 跳过内容审核');
+        console.log('========== [DEBUG] 草稿模式结束 ==========\n');
     }
 
     const transaction = await sequelize.transaction();
@@ -267,22 +315,44 @@ router.post('/create', async (req, res) => {
             }
         }
 
+        // 记录审核日志
+        if (reviewLog) {
+            reviewLog.article_id = article.article_id;
+            try {
+                await Reviews.create(reviewLog, { transaction });
+                console.log('[创建文章] ✓ 审核日志已保存');
+            } catch (err) {
+                console.warn(
+                    `[创建文章] 文章 ${article.article_id} 的审核日志写入失败`,
+                    err.message
+                );
+            }
+        }
+
         await transaction.commit();
 
+        // 根据状态返回不同的消息
+        let message = '操作成功';
+        if (as === 'draft') {
+            message = '草稿已保存';
+        } else if (status === '已发布') {
+            message = '审核通过，文章已自动发布';
+        } else if (status === '待发布') {
+            message = '审核通过，已设置定时发布';
+        } else if (status === '待审') {
+            message = '已提交，内容疑似违规，等待人工审核';
+        } else if (status === '拒绝') {
+            message = '审核未通过，文章已被拒绝';
+        }
+
         res.json({
-            message:
-                as === 'draft'
-                    ? '草稿已保存'
-                    : status === '已发布'
-                    ? '文章已发布'
-                    : status === '待发布'
-                    ? '已设置定时发布'
-                    : '已提交，等待审核',
+            message,
             article,
             uploadedMedia,
             status,
             scheduled_publish_date,
             publish_date,
+            rejectReason: reviewLog?.review_comments || null,
         });
     } catch (error) {
         await transaction.rollback();
@@ -313,34 +383,102 @@ router.put('/edit/:article_id', async (req, res) => {
         return res.status(400).json({ error: '标题、内容、分类为必填项' });
     }
 
+    // 类型转换
+    const categoryId = parseInt(category_id);
+    if (isNaN(categoryId)) {
+        return res.status(400).json({ error: '无效的分类 ID' });
+    }
+
+    // 非草稿模式：校验分类必须是子分类（不能是根分类）
+    if (act !== 'save') {
+        try {
+            const category = await Category.findByPk(categoryId, {
+                attributes: ['category_id', 'category_name', 'parent_id']
+            });
+
+            if (!category) {
+                return res.status(400).json({
+                    error: '分类不存在',
+                    detail: `分类ID ${categoryId} 不存在`
+                });
+            }
+
+            if (category.parent_id === null) {
+                return res.status(400).json({
+                    error: '不能使用根分类发布文章',
+                    detail: `分类"${category.category_name}"是根分类，请选择具体的子分类`
+                });
+            }
+
+            console.log('[分类校验] ✓ 分类有效，父分类ID:', category.parent_id);
+        } catch (err) {
+            return res.status(500).json({
+                error: '分类校验失败',
+                detail: err.message
+            });
+        }
+    }
+
     let status = '草稿';
     let scheduled_publish_date = null;
     let publish_date = null;
     let reviewLog = null;
 
     if (act !== 'save') {
-        try {
-            if (act === 'schedule') {
-                const time = new Date(req.body.scheduled_publish_date);
-                if (isNaN(time.getTime()) || time <= new Date()) {
-                    return res
-                        .status(400)
-                        .json({ error: '定时发布时间必须晚于当前时间' });
-                }
-                scheduled_publish_date = time;
-                status = '待发布';
-            } else {
-                // submit 提交：走审核流程
-                const result = await performReview(title, content);
-                status = result.status;
-                publish_date = status === '已发布' ? new Date() : null;
-                reviewLog = result.reviewLog;
+        console.log('\n========== [DEBUG] 编辑文章 - 内容审核开始 ==========');
+        console.log('[输入] 标题:', title);
+        console.log('[输入] 内容:', content.substring(0, 100) + (content.length > 100 ? '...' : ''));
+
+        if (act === 'schedule') {
+            // 定时发布：需要审核
+            const time = new Date(req.body.scheduled_publish_date);
+            if (isNaN(time.getTime()) || time <= new Date()) {
+                console.log('[定时发布] ❌ 定时发布时间无效');
+                console.log('========== [DEBUG] 内容审核结束 ==========\n');
+                return res
+                    .status(400)
+                    .json({ error: '定时发布时间必须晚于当前时间' });
             }
-        } catch (err) {
-            return res
-                .status(400)
-                .json({ error: '审核失败', detail: err.message });
+
+            console.log('[定时发布] 开始内容审核（定时发布模式）...');
+            const decision = await performReview(title, content, true);
+            scheduled_publish_date = time;
+            status = decision.status;
+            reviewLog = decision.reviewLog;
+
+            if (status === '待发布') {
+                publish_date = null;
+                console.log('[定时发布] ✓ 审核通过，已设置定时发布:', scheduled_publish_date);
+            } else if (status === '拒绝') {
+                scheduled_publish_date = null;
+                console.log('[定时发布] ❌ 审核拒绝，文章将标记为拒绝状态');
+            } else if (status === '待审') {
+                console.log('[定时发布] ⚠️  审核疑似违规，需要人工审核');
+            }
+        } else {
+            // submit 提交：走审核流程
+            console.log('[投稿发布] 开始内容审核...');
+            const decision = await performReview(title, content, false);
+            status = decision.status;
+            publish_date = status === '已发布' ? new Date() : null;
+            reviewLog = decision.reviewLog;
+
+            if (status === '已发布') {
+                console.log('[投稿发布] ✅ 审核完全通过，文章将自动发布');
+            } else if (status === '待审') {
+                console.log('[投稿发布] ⚠️  审核疑似违规，需要人工审核');
+            } else if (status === '拒绝') {
+                console.log('[投稿发布] ❌ 审核拒绝，文章将标记为拒绝状态');
+            }
         }
+
+        console.log('[审核结果] 状态:', status);
+        console.log('[审核结果] 备注:', reviewLog.review_comments);
+        console.log('========== [DEBUG] 内容审核结束 ==========\n');
+    } else {
+        console.log('\n========== [DEBUG] 编辑文章 - 草稿模式 ==========');
+        console.log('[草稿模式] 跳过内容审核');
+        console.log('========== [DEBUG] 草稿模式结束 ==========\n');
     }
 
     const transaction = await sequelize.transaction();
@@ -372,7 +510,7 @@ router.put('/edit/:article_id', async (req, res) => {
         await article.update(
             {
                 title,
-                category_id: parseInt(category_id),
+                category_id: categoryId,
                 content,
                 source: source || null,
                 editor: editor || null,
@@ -439,14 +577,26 @@ router.put('/edit/:article_id', async (req, res) => {
 
         await transaction.commit();
 
+        // 根据状态返回不同的消息
+        let message = '操作成功';
+        if (act === 'save') {
+            message = '草稿已保存';
+        } else if (status === '已发布') {
+            message = '审核通过，文章已自动发布';
+        } else if (status === '待发布') {
+            message = '审核通过，已设置定时发布';
+        } else if (status === '待审') {
+            message = '已提交，内容疑似违规，等待人工审核';
+        } else if (status === '拒绝') {
+            message = '审核未通过，文章已被拒绝';
+        }
+
         res.json({
-            message: {
-                save: '草稿已保存',
-                submit: '文章已提交，等待审核',
-                schedule: '文章已设置定时发布',
-            }[act],
+            message,
             article: article.toJSON(),
             uploadedMedia,
+            status,
+            rejectReason: reviewLog?.review_comments || null,
         });
     } catch (error) {
         await transaction.rollback();

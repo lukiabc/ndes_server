@@ -8,6 +8,7 @@
     "dependencies": {
         "@alicloud/pop-core": "^1.8.0",
         "@node-rs/jieba": "^2.0.1",
+        "baidu-aip-sdk": "^4.16.16",
         "bcrypt": "^6.0.0",
         "body-parser": "^2.2.0",
         "cheerio": "1.0.0-rc.12",
