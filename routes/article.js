@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { performReview } = require('../utils/ai-review');
 const { extractLocalMediaFilenames } = require('../utils/media');
+const { localizeRemoteImages } = require('../utils/localizeRemoteImages');
 const { Op } = require('sequelize');
 
 const { Sequelize } = require('sequelize');
@@ -309,6 +310,18 @@ router.post('/create', async (req, res) => {
         console.log('========== [DEBUG] 草稿模式结束 ==========\n');
     }
 
+    // 本地化外链图片
+    let finalContent = content;
+    if (content) {
+        try {
+            const { html: localizedHtml } = await localizeRemoteImages(content);
+            finalContent = localizedHtml;
+        } catch (err) {
+            console.warn('⚠️ 图片本地化失败，使用原始内容:', err.message);
+            // 不中断流程，继续使用原始 content
+        }
+    }
+
     const transaction = await sequelize.transaction();
     try {
         // 创建文章
@@ -316,7 +329,7 @@ router.post('/create', async (req, res) => {
             {
                 title,
                 category_id: categoryId,
-                content,
+                content: finalContent,
                 source: source || null,
                 editor: editor || null,
                 status,
@@ -343,9 +356,11 @@ router.post('/create', async (req, res) => {
         let uploadedMedia = [];
 
         // 从 HTML 中提取媒体
-        if (content) {
+        if (finalContent) {
             try {
-                const mediaFiles = await extractLocalMediaFilenames(content);
+                const mediaFiles = await extractLocalMediaFilenames(
+                    finalContent
+                );
                 if (mediaFiles.length > 0) {
                     const mediaList = mediaFiles.map(({ filename, tag }) => ({
                         article_id: article.article_id,
@@ -553,6 +568,17 @@ router.put('/edit/:article_id', async (req, res) => {
         console.log('========== [DEBUG] 草稿模式结束 ==========\n');
     }
 
+    // ====== 本地化外链图片 ======
+    let finalContent = content;
+    if (content) {
+        try {
+            const { html: localizedHtml } = await localizeRemoteImages(content);
+            finalContent = localizedHtml;
+        } catch (err) {
+            console.warn('⚠️ 编辑时图片本地化失败，使用原始内容:', err.message);
+        }
+    }
+
     const transaction = await sequelize.transaction();
     try {
         const article = await Article.findByPk(article_id, { transaction });
@@ -572,7 +598,7 @@ router.put('/edit/:article_id', async (req, res) => {
                 article_id,
                 version_number: (lastVersion?.version_number || 0) + 1,
                 title,
-                content,
+                content: finalContent,
                 editor: editor || 'unknown',
             },
             { transaction }
@@ -598,9 +624,11 @@ router.put('/edit/:article_id', async (req, res) => {
 
         // 添加新媒体
         let uploadedMedia = [];
-        if (content) {
+        if (finalContent) {
             try {
-                const mediaFiles = await extractLocalMediaFilenames(content);
+                const mediaFiles = await extractLocalMediaFilenames(
+                    finalContent
+                ); // ←
                 if (mediaFiles.length > 0) {
                     const mediaList = mediaFiles.map(({ filename, tag }) => ({
                         article_id,
@@ -622,11 +650,11 @@ router.put('/edit/:article_id', async (req, res) => {
                         returning: true,
                     });
 
-                    uploadedMedia = records.map((r, index) => ({
+                    uploadedMedia = records.map((r, i) => ({
                         media_id: r.media_id,
                         media_url: r.media_url,
                         description: r.description,
-                        filename: mediaFiles[index].filename,
+                        filename: mediaFiles[i].filename,
                     }));
                 }
             } catch (err) {
