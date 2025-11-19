@@ -14,6 +14,7 @@ var reviewsRouter = require('./routes/reviews');
 const sensitiveWordRouter = require('./routes/sensitiveWord');
 const articleVersionRouter = require('./routes/articleVersion');
 const carouselRouter = require('./routes/carousels');
+const uploadsRouter = require('./routes/uploads');
 
 var cors = require('cors');
 var app = express();
@@ -45,6 +46,7 @@ app.use('/reviews', reviewsRouter);
 app.use('/sensitive', sensitiveWordRouter);
 app.use('/articleVersion', articleVersionRouter);
 app.use('/carousel', carouselRouter);
+app.use('/uploads', uploadsRouter);
 
 // 同步所有模型到数据库
 sequelize

@@ -9,10 +9,14 @@ const SECRET_KEY = process.env.BAIDU_CLOUD_SECRET_KEY;
 
 // 创建百度云内容审核客户端
 let baiduClient = null;
-if (APP_ID && API_KEY && SECRET_KEY &&
+if (
+    APP_ID &&
+    API_KEY &&
+    SECRET_KEY &&
     APP_ID !== 'your_app_id_here' &&
     API_KEY !== 'your_api_key_here' &&
-    SECRET_KEY !== 'your_secret_key_here') {
+    SECRET_KEY !== 'your_secret_key_here'
+) {
     try {
         baiduClient = new AipContentCensorClient(APP_ID, API_KEY, SECRET_KEY);
         console.log('[AI-Review] 百度云内容审核客户端初始化成功');
@@ -31,7 +35,10 @@ if (APP_ID && API_KEY && SECRET_KEY &&
 async function baiduTextCensor(text) {
     console.log('\n---------- [百度云审核] 开始 ----------');
     console.log('[百度云] 待审核文本长度:', text.length);
-    console.log('[百度云] 待审核文本:', text.substring(0, 200) + (text.length > 200 ? '...' : ''));
+    console.log(
+        '[百度云] 待审核文本:',
+        text.substring(0, 200) + (text.length > 200 ? '...' : '')
+    );
 
     if (!baiduClient) {
         console.log('[百度云] ⚠️  百度云客户端未配置，跳过云端审核');
@@ -59,10 +66,13 @@ async function baiduTextCensor(text) {
                 216201: '图片大小错误',
                 216202: '图片格式错误',
                 216630: '识别错误',
-                282000: '服务器内部错误'
+                282000: '服务器内部错误',
             };
 
-            const errorMsg = errorMessages[result.error_code] || result.error_msg || '未知错误';
+            const errorMsg =
+                errorMessages[result.error_code] ||
+                result.error_msg ||
+                '未知错误';
             console.log(`[百度云] ❌ 审核错误 - 错误码: ${result.error_code}`);
             console.log(`[百度云] 错误信息: ${errorMsg}`);
             console.log('---------- [百度云审核] 结束 ----------\n');
@@ -70,7 +80,7 @@ async function baiduTextCensor(text) {
             return {
                 pass: 'error',
                 message: errorMsg,
-                detail: result
+                detail: result,
             };
         }
 
@@ -101,18 +111,19 @@ async function baiduTextCensor(text) {
             return {
                 pass: true,
                 message: '百度云审核通过',
-                detail: result
+                detail: result,
             };
         } else if (result.conclusionType === 2) {
             // 不合规
-            const hits = result.data?.map(item => item.msg).join('、') || '违规内容';
+            const hits =
+                result.data?.map((item) => item.msg).join('、') || '违规内容';
             console.log('[百度云] ❌ 审核结果: 不合规');
             console.log('[百度云] 违规内容:', hits);
             console.log('---------- [百度云审核] 结束 ----------\n');
             return {
                 pass: false,
                 message: `百度云检测到违规内容: ${hits}`,
-                detail: result
+                detail: result,
             };
         } else if (result.conclusionType === 3) {
             // 疑似违规，需要人工审核
@@ -121,7 +132,7 @@ async function baiduTextCensor(text) {
             return {
                 pass: 'review',
                 message: '百度云检测到疑似违规，需人工审核',
-                detail: result
+                detail: result,
             };
         } else {
             // 审核失败
@@ -131,7 +142,7 @@ async function baiduTextCensor(text) {
             return {
                 pass: 'error',
                 message: '百度云审核异常',
-                detail: result
+                detail: result,
             };
         }
     } catch (err) {
@@ -142,7 +153,7 @@ async function baiduTextCensor(text) {
         return {
             pass: 'error',
             message: `百度云审核调用失败: ${err.message}`,
-            error: err
+            error: err,
         };
     }
 }
@@ -177,7 +188,7 @@ async function performReview(title, content, isScheduled = false) {
             reviewLog: {
                 reviewer: 'system',
                 review_result: '拒绝',
-                review_comments: `[系统] ${rejectReason}`,
+                review_comments: `[本地] ${rejectReason}`,
                 review_time: new Date(),
             },
         };
@@ -199,13 +210,15 @@ async function performReview(title, content, isScheduled = false) {
             // 定时发布 - 标记为待发布
             status = '待发布';
             reviewResult = '审核通过';
-            reviewComments = '[系统] 本地敏感词检测通过，百度云审核通过，已设置定时发布。';
+            reviewComments =
+                '[系统] 本地敏感词检测通过，百度云审核通过，已设置定时发布。';
             console.log('[AI-Review] ✅ 审核完全通过，文章待定时发布');
         } else {
             // 立即发布 - 标记为已发布
             status = '已发布';
             reviewResult = '审核通过';
-            reviewComments = '[系统] 本地敏感词检测通过，百度云审核通过，文章已自动发布。';
+            reviewComments =
+                '[系统] 本地敏感词检测通过，百度云审核通过，文章已自动发布。';
             console.log('[AI-Review] ✅ 审核完全通过，文章自动发布');
         }
     } else if (baiduResult.pass === false) {

@@ -16,6 +16,9 @@ const {
     ArticleVersion,
 } = require('../utils/db');
 
+// ai 审核 id
+const AI_REVIEWER_ID = parseInt(process.env.AI_REVIEWER_ID, 10) || 0;
+
 // 获取所有文章状态及其数量统计
 router.get('/status-counts', async (req, res) => {
     try {
@@ -289,6 +292,14 @@ router.post('/create', async (req, res) => {
             }
         }
 
+        if (reviewLog) {
+            reviewLog = {
+                ...reviewLog,
+                reviewer: AI_REVIEWER_ID,
+                review_time: new Date(),
+            };
+        }
+
         console.log('[审核结果] 状态:', status);
         console.log('[审核结果] 备注:', reviewLog.review_comments);
         console.log('========== [DEBUG] 内容审核结束 ==========\n');
@@ -373,7 +384,9 @@ router.post('/create', async (req, res) => {
             reviewLog.article_id = article.article_id;
             try {
                 await Reviews.create(reviewLog, { transaction });
-                console.log('[创建文章] ✓ 审核日志已保存');
+                console.log(
+                    `[创建文章] ✓ AI 审核日志已保存（审核人ID: ${AI_REVIEWER_ID})`
+                );
             } catch (err) {
                 console.warn(
                     `[创建文章] 文章 ${article.article_id} 的审核日志写入失败`,
