@@ -38,7 +38,6 @@ router.get('/user/:user_id/search', async (req, res) => {
     const offset = (page - 1) * pageSize;
 
     try {
-        // 构建 where 条件
         const where = { user_id };
         if (titleKeyword) {
             where.title = { [Op.like]: `%${titleKeyword}%` };
