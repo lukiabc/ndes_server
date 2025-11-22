@@ -20,6 +20,81 @@ const {
 // ai 审核 id
 const AI_REVIEWER_ID = parseInt(process.env.AI_REVIEWER_ID, 10) || 0;
 
+// 根据用户id标题模糊查询文章
+router.get('/user/:user_id/search', async (req, res) => {
+    const user_id = parseInt(req.params.user_id);
+    const titleKeyword = req.query.title?.trim() || '';
+
+    if (isNaN(user_id) || user_id <= 0) {
+        return res.status(400).json({ error: '无效的用户 ID' });
+    }
+
+    // 分页参数
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(
+        50,
+        Math.max(1, parseInt(req.query.pageSize) || 10)
+    );
+    const offset = (page - 1) * pageSize;
+
+    try {
+        // 构建 where 条件
+        const where = { user_id };
+        if (titleKeyword) {
+            where.title = { [Op.like]: `%${titleKeyword}%` };
+        }
+
+        const result = await Article.findAndCountAll({
+            where,
+            distinct: true,
+            include: [
+                {
+                    model: Category,
+                    as: 'Category',
+                    attributes: ['category_id', 'category_name'],
+                    include: [
+                        {
+                            model: Category,
+                            as: 'ParentCategory',
+                            attributes: ['category_id', 'category_name'],
+                        },
+                    ],
+                },
+                {
+                    model: Media,
+                    attributes: [
+                        'media_id',
+                        'media_type',
+                        'media_url',
+                        'description',
+                    ],
+                },
+            ],
+            order: [['publish_date', 'DESC']],
+            limit: pageSize,
+            offset: offset,
+        });
+
+        res.json({
+            user_id,
+            keyword: titleKeyword,
+            total: result.count,
+            page,
+            pageSize,
+            list: result.rows,
+        });
+    } catch (error) {
+        console.error('用户文章标题搜索失败:', error);
+        res.status(500).json({
+            error: '搜索失败',
+            detail:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
+        });
+    }
+});
+
 // 获取所有文章状态及其数量统计
 router.get('/status-counts', async (req, res) => {
     try {
@@ -191,7 +266,9 @@ router.post('/create', async (req, res) => {
 
     // 必填校验
     if (!title || !content || !category_id || !user_id) {
-        return res.status(400).json({ error: '标题、内容、分类、用户ID为必填项' });
+        return res
+            .status(400)
+            .json({ error: '标题、内容、分类、用户ID为必填项' });
     }
 
     // 类型转换
@@ -453,7 +530,8 @@ router.post('/create', async (req, res) => {
 // 编辑文章
 router.put('/edit/:article_id', async (req, res) => {
     const article_id = parseInt(req.params.article_id);
-    const { title, category_id, content, source, editor, action, user_id } = req.body;
+    const { title, category_id, content, source, editor, action, user_id } =
+        req.body;
     const act = action || 'submit';
 
     const validActions = ['save', 'submit', 'schedule'];
@@ -463,7 +541,9 @@ router.put('/edit/:article_id', async (req, res) => {
     if (isNaN(article_id))
         return res.status(400).json({ error: '无效的文章 ID' });
     if (!title || !content || !category_id || !user_id) {
-        return res.status(400).json({ error: '标题、内容、分类、用户ID为必填项' });
+        return res
+            .status(400)
+            .json({ error: '标题、内容、分类、用户ID为必填项' });
     }
 
     // 类型转换
