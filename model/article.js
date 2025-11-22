@@ -9,12 +9,23 @@ module.exports = (sequelize, DataTypes) => {
                 type: DataTypes.INTEGER,
                 autoIncrement: true,
                 primaryKey: true,
-                comment: '文章ID，主键，自增',
+                comment: '文章ID 自增',
+            },
+            user_id: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+                comment: '文章作者ID,外键',
+                references: {
+                    model: 'users',
+                    key: 'user_id',
+                },
+                onDelete: 'RESTRICT',
+                onUpdate: 'CASCADE',
             },
             category_id: {
                 type: DataTypes.INTEGER,
                 allowNull: true,
-                comment: '分类ID，外键',
+                comment: '分类ID,外键',
                 references: {
                     model: 'categories',
                     key: 'category_id',

@@ -1,36 +1,61 @@
 const { filter } = require('./sensitive');
-const AipContentCensorClient = require('baidu-aip-sdk').contentCensor;
+const axios = require('axios');
 require('dotenv').config();
 
-// 百度云内容审核客户端配置
+// 百度云密钥
 const APP_ID = process.env.BAIDU_CLOUD_APP_ID;
 const API_KEY = process.env.BAIDU_CLOUD_API_KEY;
 const SECRET_KEY = process.env.BAIDU_CLOUD_SECRET_KEY;
 
-// 创建百度云内容审核客户端
-let baiduClient = null;
-if (
-    APP_ID &&
-    API_KEY &&
-    SECRET_KEY &&
-    APP_ID !== 'your_app_id_here' &&
-    API_KEY !== 'your_api_key_here' &&
-    SECRET_KEY !== 'your_secret_key_here'
-) {
-    try {
-        baiduClient = new AipContentCensorClient(APP_ID, API_KEY, SECRET_KEY);
-        console.log('[AI-Review] 百度云内容审核客户端初始化成功');
-    } catch (err) {
-        console.error('[AI-Review] 百度云客户端初始化失败:', err.message);
+// AccessToken 缓存
+let accessToken = null;
+let tokenExpiry = 0; // 过期时间戳（毫秒）
+
+async function getAccessToken() {
+    const now = Date.now();
+    if (accessToken && now < tokenExpiry) {
+        return accessToken;
     }
-} else {
-    console.warn('[AI-Review] 百度云密钥未配置，将仅使用本地敏感词检测');
+
+    if (!API_KEY || !SECRET_KEY) {
+        throw new Error('百度云 API_KEY 或 SECRET_KEY 未配置');
+    }
+
+    try {
+        const response = await axios.post(
+            'https://aip.baidubce.com/oauth/2.0/token',
+            null,
+            {
+                params: {
+                    grant_type: 'client_credentials',
+                    client_id: API_KEY,
+                    client_secret: SECRET_KEY,
+                },
+                timeout: 10000, // 10秒超时
+            }
+        );
+
+        const data = response.data;
+        if (data.error) {
+            throw new Error(
+                `获取 Token 失败: ${data.error_description || data.error}`
+            );
+        }
+
+        accessToken = data.access_token;
+        tokenExpiry = now + (data.expires_in - 300) * 1000; // 提前5分钟过期
+        console.log('[百度云] 新 AccessToken 获取成功');
+        return accessToken;
+    } catch (err) {
+        console.error('[百度云] 获取 AccessToken 异常:', err.message);
+        throw err;
+    }
 }
 
 /**
- * 使用百度云文本审核 API
+ * 使用 axios 调用百度云文本审核 API
  * @param {string} text - 待审核文本
- * @returns {Promise<Object>} 审核结果
+ * @returns {Promise<Object>} 审核结果（与原 SDK 返回结构一致）
  */
 async function baiduTextCensor(text) {
     console.log('\n---------- [百度云审核] 开始 ----------');
@@ -40,20 +65,40 @@ async function baiduTextCensor(text) {
         text.substring(0, 200) + (text.length > 200 ? '...' : '')
     );
 
-    if (!baiduClient) {
-        console.log('[百度云] ⚠️  百度云客户端未配置，跳过云端审核');
+    // 检查密钥是否配置
+    if (
+        !APP_ID ||
+        !API_KEY ||
+        !SECRET_KEY ||
+        APP_ID === 'your_app_id_here' ||
+        API_KEY === 'your_api_key_here' ||
+        SECRET_KEY === 'your_secret_key_here'
+    ) {
+        console.log('[百度云] ⚠️ 百度云密钥未配置，跳过云端审核');
         console.log('---------- [百度云审核] 结束 ----------\n');
         return { pass: true, message: '百度云未配置，跳过云端审核' };
     }
 
     try {
-        console.log('[百度云] 正在调用百度云 API...');
-        const result = await baiduClient.textCensorUserDefined(text);
+        const token = await getAccessToken();
+        const url = `https://aip.baidubce.com/rest/2.0/solution/v1/text_censor/user_defined?access_token=${token}`;
 
+        const response = await axios.post(
+            url,
+            `text=${encodeURIComponent(text)}`,
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                timeout: 10000, // 10秒超时，避免卡死
+            }
+        );
+
+        const result = response.data;
         console.log('[百度云] ✓ API 调用成功');
         console.log('[百度云] 完整返回结果:', JSON.stringify(result, null, 2));
 
-        // 检查是否有错误码
+        // 错误码处理（与原逻辑一致）
         if (result.error_code) {
             const errorMessages = {
                 18: 'QPS 请求限制已达到（免费版限制），已降级为本地检测',
@@ -84,12 +129,10 @@ async function baiduTextCensor(text) {
             };
         }
 
-        // 百度云返回结果结构：
-        // conclusionType: 1-合规，2-不合规，3-疑似，4-审核失败
-        // data: 包含详细的审核信息
-
+        // 正常审核结果处理（完全复用你原有逻辑）
         console.log('[百度云] conclusionType:', result.conclusionType);
         console.log('[百度云] conclusion:', result.conclusion);
+
         if (result.data && result.data.length > 0) {
             console.log('[百度云] 检测详情:');
             result.data.forEach((item, index) => {
@@ -114,7 +157,6 @@ async function baiduTextCensor(text) {
                 detail: result,
             };
         } else if (result.conclusionType === 2) {
-            // 不合规
             const hits =
                 result.data?.map((item) => item.msg).join('、') || '违规内容';
             console.log('[百度云] ❌ 审核结果: 不合规');
@@ -126,8 +168,7 @@ async function baiduTextCensor(text) {
                 detail: result,
             };
         } else if (result.conclusionType === 3) {
-            // 疑似违规，需要人工审核
-            console.log('[百度云] ⚠️  审核结果: 疑似违规');
+            console.log('[百度云] ⚠️ 审核结果: 疑似违规');
             console.log('---------- [百度云审核] 结束 ----------\n');
             return {
                 pass: 'review',
@@ -135,7 +176,6 @@ async function baiduTextCensor(text) {
                 detail: result,
             };
         } else {
-            // 审核失败
             console.log('[百度云] ❌ 审核结果: 审核失败');
             console.log('[百度云] conclusionType:', result.conclusionType);
             console.log('---------- [百度云审核] 结束 ----------\n');
@@ -146,14 +186,12 @@ async function baiduTextCensor(text) {
             };
         }
     } catch (err) {
-        console.error('[百度云] ❌ API 调用异常:', err);
-        console.error('[百度云] 错误详情:', err.message);
+        console.error('[百度云] ❌ API 调用异常:', err.message);
         console.error('[百度云] 错误堆栈:', err.stack);
         console.log('---------- [百度云审核] 结束 ----------\n');
         return {
             pass: 'error',
             message: `百度云审核调用失败: ${err.message}`,
-            error: err,
         };
     }
 }

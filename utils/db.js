@@ -24,6 +24,26 @@ const Carousel = require('../model/carousels')(sequelize, Sequelize);
 // 关联 User 和 Role
 User.belongsTo(Role, { foreignKey: 'role_id' });
 
+// 用户 和 文章（一对多）
+User.hasMany(Article, {
+    foreignKey: 'user_id',
+    as: 'Articles',
+});
+Article.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'Author',
+});
+
+// 用户 和 文章版本（一对多）
+User.hasMany(ArticleVersion, {
+    foreignKey: 'user_id',
+    as: 'EditedVersions',
+});
+ArticleVersion.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'EditorUser',
+});
+
 // 关联 Article 和 Media
 Article.hasMany(Media, { foreignKey: 'article_id' });
 Media.belongsTo(Article, { foreignKey: 'article_id' });
@@ -56,7 +76,7 @@ Reviews.belongsTo(Article, {
 // 文章 和 分类
 Article.belongsTo(Category, {
     foreignKey: 'category_id',
-    as: 'Category', // 用于 include 时指定
+    as: 'Category',
 });
 
 //父分类和子分类自联

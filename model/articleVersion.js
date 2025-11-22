@@ -13,17 +13,28 @@ module.exports = (sequelize, DataTypes) => {
             article_id: {
                 type: DataTypes.INTEGER,
                 allowNull: false,
-                comment: '关联的文章ID，外键引用articles表',
+                comment: '关联的文章ID',
                 references: {
                     model: 'articles',
                     key: 'article_id',
                 },
                 onDelete: 'CASCADE',
             },
+            user_id: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+                comment: '编辑者用户ID',
+                references: {
+                    model: 'users',
+                    key: 'user_id',
+                },
+                onDelete: 'RESTRICT',
+                onUpdate: 'CASCADE',
+            },
             version_number: {
                 type: DataTypes.INTEGER,
                 allowNull: false,
-                comment: '版本号，从1开始递增，表示文章的修订次序',
+                comment: '版本号 从1开始递增 表示文章的修订次序',
             },
             title: {
                 type: DataTypes.STRING(255),

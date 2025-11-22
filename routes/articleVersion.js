@@ -59,15 +59,78 @@ router.get('/list/:article_id', async (req, res) => {
     }
 });
 
+// 根据用户ID获取文章版本列表
+router.get('/user/:user_id', async (req, res) => {
+    const user_id = parseInt(req.params.user_id);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    if (isNaN(user_id) || user_id <= 0) {
+        return res.status(400).json({ error: '无效的用户 ID' });
+    }
+
+    try {
+        const result = await ArticleVersion.findAndCountAll({
+            where: { user_id },
+            attributes: [
+                'version_id',
+                'article_id',
+                'user_id',
+                'version_number',
+                'title',
+                'editor',
+                'content',
+                'created_at',
+            ],
+            include: [
+                {
+                    model: Article,
+                    as: 'Article',
+                    attributes: ['article_id', 'title', 'status'],
+                },
+            ],
+            order: [['created_at', 'DESC']],
+            limit: limit,
+            offset: offset,
+        });
+
+        res.json({
+            user_id,
+            total_versions: result.count,
+            pagination: {
+                current_page: page,
+                page_size: limit,
+                total_items: result.count,
+                total_pages: Math.ceil(result.count / limit),
+            },
+            versions: result.rows.map((v) => ({
+                version_id: v.version_id,
+                article_id: v.article_id,
+                user_id: v.user_id,
+                version_number: v.version_number,
+                title: v.title,
+                editor: v.editor,
+                created_at: v.created_at,
+                content: v.content,
+                article: v.Article,
+            })),
+        });
+    } catch (error) {
+        console.error('查询用户文章版本失败:', error);
+        res.status(500).json({ error: '服务器内部错误: ' + error.message });
+    }
+});
+
 // 恢复到指定版本
 router.put('/revert/:article_id', async (req, res) => {
     const article_id = parseInt(req.params.article_id);
-    const { version_number } = req.body;
+    const { version_number, user_id } = req.body;
 
-    if (isNaN(article_id) || !version_number || version_number < 1) {
+    if (isNaN(article_id) || !version_number || version_number < 1 || !user_id) {
         return res
             .status(400)
-            .json({ error: '无效的参数：article_id 或 version_number' });
+            .json({ error: '无效的参数：article_id、version_number 或 user_id' });
     }
 
     const transaction = await sequelize.transaction();
@@ -127,6 +190,7 @@ router.put('/revert/:article_id', async (req, res) => {
         await ArticleVersion.create(
             {
                 article_id,
+                user_id,
                 version_number: newVersionNumber,
                 title: targetVersion.title,
                 content: targetVersion.content,
