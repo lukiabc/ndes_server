@@ -259,25 +259,38 @@ router.get('/details/:article_id', async (req, res) => {
 
 // 创建文章
 router.post('/create', async (req, res) => {
-    const { title, category_id, content, source, editor, user_id } = req.body;
-    const as = req.query.as === 'draft' ? 'draft' : 'submit';
-    const scheduledTimeStr = req.body.scheduled_publish_date;
+    const {
+        title,
+        category_id,
+        content,
+        source,
+        editor,
+        user_id,
+        action = 'submit', // ← 新增！默认 submit
+        scheduled_publish_date: scheduledTimeStr, // ← 重命名避免冲突
+    } = req.body;
 
-    // 必填校验
+    const validActions = ['save', 'submit', 'schedule'];
+    if (!validActions.includes(action)) {
+        return res
+            .status(400)
+            .json({ error: '无效的操作类型，仅支持 save / submit / schedule' });
+    }
+
+    // 必填校验（注意：草稿可考虑放宽，但你当前要求必填，保留）
     if (!title || !content || !category_id || !user_id) {
         return res
             .status(400)
             .json({ error: '标题、内容、分类、用户ID为必填项' });
     }
 
-    // 类型转换
     const categoryId = parseInt(category_id);
     if (isNaN(categoryId)) {
         return res.status(400).json({ error: '无效的分类 ID' });
     }
 
-    // 非草稿模式：校验分类必须是子分类（不能是根分类）
-    if (as !== 'draft') {
+    // 非草稿模式：校验分类必须是子分类
+    if (action !== 'save') {
         try {
             const category = await Category.findByPk(categoryId, {
                 attributes: ['category_id', 'category_name', 'parent_id'],
@@ -311,8 +324,8 @@ router.post('/create', async (req, res) => {
     let publish_date = null;
     let reviewLog = null;
 
-    // 非草稿 触发 AI 审核 或 设置定时发布
-    if (as !== 'draft') {
+    // 非草稿才走审核流程
+    if (action !== 'save') {
         console.log('\n========== [DEBUG] 内容审核开始 ==========');
         console.log('[输入] 标题:', title);
         console.log(
@@ -320,8 +333,14 @@ router.post('/create', async (req, res) => {
             content.substring(0, 100) + (content.length > 100 ? '...' : '')
         );
 
-        if (scheduledTimeStr) {
-            // 定时发布：需要审核
+        if (action === 'schedule') {
+            // 定时发布
+            if (!scheduledTimeStr) {
+                return res
+                    .status(400)
+                    .json({ error: '定时发布必须提供 scheduled_publish_date' });
+            }
+
             scheduled_publish_date = new Date(scheduledTimeStr);
             if (
                 isNaN(scheduled_publish_date.getTime()) ||
@@ -339,23 +358,22 @@ router.post('/create', async (req, res) => {
             status = decision.status;
             reviewLog = decision.reviewLog;
 
-            // 定时发布审核通过才设置发布时间
             if (status === '待发布') {
-                publish_date = null; // 定时发布时不设置当前时间
+                publish_date = null;
                 console.log(
                     '[定时发布] ✓ 审核通过，已设置定时发布:',
                     scheduled_publish_date
                 );
             } else if (status === '拒绝') {
-                scheduled_publish_date = null; // 拒绝时清空定时发布时间
+                scheduled_publish_date = null;
                 console.log('[定时发布] ❌ 审核拒绝，文章将标记为拒绝状态');
             } else if (status === '待审') {
-                console.log('[定时发布] ⚠️  审核疑似违规，需要人工审核');
+                console.log('[定时发布] ⚠️ 审核疑似违规，需要人工审核');
             }
-        } else {
-            // 投稿发布：需要审核
+        } else if (action === 'submit') {
+            // 立即投稿
             console.log('[投稿发布] 开始内容审核...');
-            const decision = await performReview(title, content, false); // 非定时发布
+            const decision = await performReview(title, content, false);
             status = decision.status;
             publish_date = status === '已发布' ? new Date() : null;
             reviewLog = decision.reviewLog;
@@ -363,7 +381,7 @@ router.post('/create', async (req, res) => {
             if (status === '已发布') {
                 console.log('[投稿发布] ✅ 审核完全通过，文章将自动发布');
             } else if (status === '待审') {
-                console.log('[投稿发布] ⚠️  审核疑似违规，需要人工审核');
+                console.log('[投稿发布] ⚠️ 审核疑似违规，需要人工审核');
             } else if (status === '拒绝') {
                 console.log('[投稿发布] ❌ 审核拒绝，文章将标记为拒绝状态');
             }
@@ -378,7 +396,7 @@ router.post('/create', async (req, res) => {
         }
 
         console.log('[审核结果] 状态:', status);
-        console.log('[审核结果] 备注:', reviewLog.review_comments);
+        console.log('[审核结果] 备注:', reviewLog?.review_comments || '无');
         console.log('========== [DEBUG] 内容审核结束 ==========\n');
     } else {
         console.log('\n========== [DEBUG] 草稿模式 ==========');
@@ -394,7 +412,6 @@ router.post('/create', async (req, res) => {
             finalContent = localizedHtml;
         } catch (err) {
             console.warn('⚠️ 图片本地化失败，使用原始内容:', err.message);
-            // 不中断流程，继续使用原始 content
         }
     }
 
@@ -423,7 +440,7 @@ router.post('/create', async (req, res) => {
                 user_id,
                 version_number: 1,
                 title,
-                content,
+                content: finalContent, // 注意：这里应存处理后的 content（含本地图）
                 editor: editor || 'unknown',
                 created_at: new Date(),
             },
@@ -432,8 +449,6 @@ router.post('/create', async (req, res) => {
 
         // 处理媒体文件
         let uploadedMedia = [];
-
-        // 从 HTML 中提取媒体
         if (finalContent) {
             try {
                 const mediaFiles = await extractLocalMediaFilenames(
@@ -490,9 +505,9 @@ router.post('/create', async (req, res) => {
 
         await transaction.commit();
 
-        // 根据状态返回不同的消息
+        // 返回消息
         let message = '操作成功';
-        if (as === 'draft') {
+        if (action === 'save') {
             message = '草稿已保存';
         } else if (status === '已发布') {
             message = '审核通过，文章已自动发布';

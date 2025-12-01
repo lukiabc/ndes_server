@@ -81,7 +81,7 @@ async function baiduTextCensor(text) {
 
     try {
         const token = await getAccessToken();
-        const url = `https://aip.baidubce.com/rest/2.0/solution/v1/text_censor/user_defined?access_token=${token}`;
+        const url = `https://aip.baidubce.com/rest/2.0/solution/v1/text_censor/v2/user_defined?access_token=${token}`;
 
         const response = await axios.post(
             url,
