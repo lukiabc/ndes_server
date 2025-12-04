@@ -21,7 +21,7 @@ module.exports = (sequelize, DataTypes) => {
                 comment: '审核人ID（users.user_id）',
             },
             review_result: {
-                type: DataTypes.ENUM('通过', '退回修改', '拒绝'),
+                type: DataTypes.ENUM('通过', '退回修订', '拒绝'),
                 allowNull: false,
                 comment: '审核结果',
             },

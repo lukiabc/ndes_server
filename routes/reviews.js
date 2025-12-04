@@ -1,4 +1,5 @@
 const express = require('express');
+const { Op } = require('sequelize');
 const router = express.Router();
 const { Article, Reviews, User } = require('../utils/db');
 const { sequelize } = require('../utils/db');
@@ -19,7 +20,7 @@ router.post('/:article_id', async (req, res) => {
         console.log('[审核] ❌ 审核结果非法');
         console.log('========== [DEBUG] 人工审核结束 ==========\n');
         return res.status(400).json({
-            error: '审核结果非法，仅支持：通过、拒绝、退回修订'
+            error: '审核结果非法，仅支持：通过、拒绝、退回修订',
         });
     }
 
@@ -28,7 +29,7 @@ router.post('/:article_id', async (req, res) => {
         // 获取文章信息
         const article = await Article.findOne({
             where: { article_id, status: '待审' },
-            transaction: t
+            transaction: t,
         });
 
         if (!article) {
@@ -62,18 +63,25 @@ router.post('/:article_id', async (req, res) => {
                 const scheduledTime = new Date(article.scheduled_publish_date);
                 const now = new Date();
 
-                console.log('[审核] 对比时间 - 定时发布:', scheduledTime.toISOString());
+                console.log(
+                    '[审核] 对比时间 - 定时发布:',
+                    scheduledTime.toISOString()
+                );
                 console.log('[审核] 对比时间 - 当前时间:', now.toISOString());
 
                 if (scheduledTime > now) {
                     // 定时发布时间还未到 -> 待发布
                     newStatus = '待发布';
-                    console.log('[审核] ✓ 审核通过，定时发布时间未到，状态设为：待发布');
+                    console.log(
+                        '[审核] ✓ 审核通过，定时发布时间未到，状态设为：待发布'
+                    );
                 } else {
                     // 定时发布时间已过 -> 立即发布
                     newStatus = '已发布';
                     publish_date = now;
-                    console.log('[审核] ✓ 审核通过，定时发布时间已到，立即发布');
+                    console.log(
+                        '[审核] ✓ 审核通过，定时发布时间已到，立即发布'
+                    );
                 }
             } else {
                 // 没有定时发布时间 -> 立即发布
@@ -108,7 +116,7 @@ router.post('/:article_id', async (req, res) => {
             message: '审核完成',
             review_result,
             newStatus,
-            publish_date
+            publish_date,
         });
     } catch (e) {
         await t.rollback();
@@ -132,6 +140,71 @@ router.get('/query/:article_id', async (req, res) => {
         res.json(list);
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// 获取审核记录列表
+router.get('/recordsList', async (req, res) => {
+    try {
+        const {
+            page = 1,
+            pageSize = 10,
+            article_title,
+            review_result,
+            reviewer_id,
+        } = req.query;
+
+        const limit = parseInt(pageSize);
+        const offset = (parseInt(page) - 1) * limit;
+
+        // 构建 where 条件
+        const where = {};
+
+        // 审核结果筛选
+        if (review_result) {
+            where.review_result = review_result;
+        }
+
+        // 审核人筛选
+        if (reviewer_id) {
+            where.reviewer = parseInt(reviewer_id);
+        }
+
+        const { count, rows } = await Reviews.findAndCountAll({
+            where,
+            limit,
+            offset,
+            order: [['review_time', 'DESC']],
+            include: [
+                {
+                    model: Article,
+                    attributes: ['title'],
+                    where: article_title
+                        ? { title: { [Op.like]: `%${article_title}%` } }
+                        : undefined,
+                    required: true,
+                },
+                {
+                    model: User,
+                    as: 'Reviewer',
+                    attributes: ['username'],
+                },
+            ],
+        });
+
+        res.json({
+            code: 200,
+            message: 'success',
+            data: {
+                total: count,
+                page: parseInt(page),
+                pageSize: limit,
+                list: rows,
+            },
+        });
+    } catch (e) {
+        console.error('获取审核记录列表失败:', e);
+        res.status(500).json({ error: '获取审核记录失败: ' + e.message });
     }
 });
 
