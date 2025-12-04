@@ -20,6 +20,81 @@ const {
 // ai 审核 id
 const AI_REVIEWER_ID = parseInt(process.env.AI_REVIEWER_ID, 10) || 0;
 
+// 模糊搜索“待审”状态的文章（标题或内容）
+router.get('/pending/search', async (req, res) => {
+    const keyword = req.query.keyword?.trim() || '';
+    if (!keyword) {
+        return res.status(400).json({ error: '关键词不能为空' });
+    }
+
+    // 分页参数
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(
+        50,
+        Math.max(1, parseInt(req.query.pageSize) || 10)
+    );
+    const offset = (page - 1) * pageSize;
+
+    try {
+        const where = {
+            status: '待审',
+            [Op.or]: [
+                { title: { [Op.like]: `%${keyword}%` } },
+                { content: { [Op.like]: `%${keyword}%` } },
+            ],
+        };
+
+        const result = await Article.findAndCountAll({
+            where,
+            distinct: true,
+            include: [
+                {
+                    model: Category,
+                    as: 'Category',
+                    attributes: ['category_id', 'category_name'],
+                    include: [
+                        {
+                            model: Category,
+                            as: 'ParentCategory',
+                            attributes: ['category_id', 'category_name'],
+                        },
+                    ],
+                },
+                {
+                    model: Media,
+                    attributes: [
+                        'media_id',
+                        'media_type',
+                        'media_url',
+                        'description',
+                    ],
+                },
+            ],
+            order: [['publish_date', 'DESC']],
+            limit: pageSize,
+            offset: offset,
+            subQuery: false,
+        });
+
+        res.json({
+            keyword,
+            total: result.count,
+            page,
+            pageSize,
+            list: result.rows,
+        });
+    } catch (error) {
+        console.error('搜索待审文章失败:', error);
+        res.status(500).json({
+            error: '搜索失败',
+            detail:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
+        });
+    }
+});
+
 // 根据用户id标题模糊查询文章
 router.get('/user/:user_id/search', async (req, res) => {
     const user_id = parseInt(req.params.user_id);
