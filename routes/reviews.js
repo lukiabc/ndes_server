@@ -126,23 +126,6 @@ router.post('/:article_id', async (req, res) => {
     }
 });
 
-// 查询审核记录
-router.get('/query/:article_id', async (req, res) => {
-    const article_id = parseInt(req.params.article_id);
-    try {
-        const list = await Reviews.findAll({
-            where: { article_id },
-            order: [['review_time', 'DESC']],
-            include: [
-                { model: User, as: 'Reviewer', attributes: ['username'] },
-            ],
-        });
-        res.json(list);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
 // 获取审核记录列表
 router.get('/recordsList', async (req, res) => {
     try {
@@ -152,6 +135,7 @@ router.get('/recordsList', async (req, res) => {
             article_title,
             review_result,
             reviewer_id,
+            article_id,
         } = req.query;
 
         const limit = parseInt(pageSize);
@@ -170,6 +154,11 @@ router.get('/recordsList', async (req, res) => {
             where.reviewer = parseInt(reviewer_id);
         }
 
+        // 文章ID筛选
+        if (article_id) {
+            where.article_id = parseInt(article_id);
+        }
+
         const { count, rows } = await Reviews.findAndCountAll({
             where,
             limit,
@@ -179,10 +168,6 @@ router.get('/recordsList', async (req, res) => {
                 {
                     model: Article,
                     attributes: ['title'],
-                    where: article_title
-                        ? { title: { [Op.like]: `%${article_title}%` } }
-                        : undefined,
-                    required: true,
                 },
                 {
                     model: User,
