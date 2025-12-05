@@ -168,6 +168,10 @@ router.get('/recordsList', async (req, res) => {
                 {
                     model: Article,
                     attributes: ['title'],
+                    where: article_title
+                        ? { title: { [Op.like]: `%${article_title}%` } }
+                        : undefined,
+                    required: true,
                 },
                 {
                     model: User,
