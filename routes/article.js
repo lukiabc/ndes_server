@@ -186,16 +186,31 @@ router.get('/pending/search', async (req, res) => {
     }
 });
 
-// 根据用户id标题模糊查询文章
+// 根据用户id、可选状态、标题模糊查询文章
 router.get('/user/:user_id/search', async (req, res) => {
-    const user_id = parseInt(req.params.user_id);
+    const user_id = parseInt(req.params.user_id, 10);
     const titleKeyword = req.query.title?.trim() || '';
+    const { status } = req.query;
 
     if (isNaN(user_id) || user_id <= 0) {
         return res.status(400).json({ error: '无效的用户 ID' });
     }
 
-    // 分页参数
+    // 校验状态（如果提供了）
+    const validStatuses = [
+        '草稿',
+        '待审',
+        '待发布',
+        '已发布',
+        '退回修订',
+        '拒绝',
+    ];
+    if (status !== undefined && !validStatuses.includes(status)) {
+        return res.status(400).json({
+            error: '无效的状态值，仅支持：草稿、待审、待发布、已发布、退回修订、拒绝',
+        });
+    }
+
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = Math.min(
         50,
@@ -205,8 +220,15 @@ router.get('/user/:user_id/search', async (req, res) => {
 
     try {
         const where = { user_id };
+
+        // 添加标题模糊条件（如果提供了关键词）
         if (titleKeyword) {
             where.title = { [Op.like]: `%${titleKeyword}%` };
+        }
+
+        // 添加状态条件（如果提供了）
+        if (status !== undefined) {
+            where.status = status;
         }
 
         const result = await Article.findAndCountAll({
@@ -243,6 +265,7 @@ router.get('/user/:user_id/search', async (req, res) => {
         res.json({
             user_id,
             keyword: titleKeyword,
+            status: status || null,
             total: result.count,
             page,
             pageSize,
