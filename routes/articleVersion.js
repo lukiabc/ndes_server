@@ -127,10 +127,15 @@ router.put('/revert/:article_id', async (req, res) => {
     const article_id = parseInt(req.params.article_id);
     const { version_number, user_id } = req.body;
 
-    if (isNaN(article_id) || !version_number || version_number < 1 || !user_id) {
-        return res
-            .status(400)
-            .json({ error: '无效的参数：article_id、version_number 或 user_id' });
+    if (
+        isNaN(article_id) ||
+        !version_number ||
+        version_number < 1 ||
+        !user_id
+    ) {
+        return res.status(400).json({
+            error: '无效的参数：article_id、version_number 或 user_id',
+        });
     }
 
     const transaction = await sequelize.transaction();
@@ -160,7 +165,7 @@ router.put('/revert/:article_id', async (req, res) => {
             return res.status(404).json({ error: '指定的版本不存在' });
         }
 
-        // 更新文章内容为该版本的内容（状态变为“草稿”或“待审”）
+        // 更新文章内容为该版本的内容
         await Article.update(
             {
                 title: targetVersion.title,
@@ -176,7 +181,7 @@ router.put('/revert/:article_id', async (req, res) => {
             }
         );
 
-        // 记录一次新的版本（表示“恢复操作”）
+        // 记录一次新的版本
         const lastVersion = await ArticleVersion.findOne({
             where: { article_id },
             order: [['version_number', 'DESC']],
@@ -210,6 +215,74 @@ router.put('/revert/:article_id', async (req, res) => {
         await transaction.rollback();
         console.error('版本回溯失败:', error);
         res.status(500).json({ error: '恢复失败: ' + error.message });
+    }
+});
+
+// 获取指定版本详情
+router.get('/:version_id', async (req, res) => {
+    const version_id = parseInt(req.params.version_id);
+    if (isNaN(version_id)) {
+        return res.status(400).json({ error: '无效的 version_id' });
+    }
+
+    try {
+        const version = await ArticleVersion.findOne({
+            where: { version_id },
+            include: [
+                {
+                    model: Article,
+                    as: 'Article',
+                    attributes: ['article_id', 'title', 'status'],
+                },
+            ],
+        });
+
+        if (!version) {
+            return res.status(404).json({ error: '版本未找到' });
+        }
+
+        res.json({
+            version_id: version.version_id,
+            article_id: version.article_id,
+            user_id: version.user_id,
+            version_number: version.version_number,
+            title: version.title,
+            editor: version.editor,
+            content: version.content,
+            created_at: version.created_at,
+            article: version.Article,
+        });
+    } catch (error) {
+        console.error('获取版本详情失败:', error);
+        res.status(500).json({ error: '服务器内部错误' });
+    }
+});
+
+// 获取文章最新版本号
+router.get('/latest/:article_id', async (req, res) => {
+    const article_id = parseInt(req.params.article_id);
+    if (isNaN(article_id)) {
+        return res.status(400).json({ error: '无效的 article_id' });
+    }
+
+    try {
+        const latest = await ArticleVersion.findOne({
+            where: { article_id },
+            order: [['version_number', 'DESC']],
+            attributes: ['version_number', 'created_at'],
+        });
+
+        if (!latest) {
+            return res.status(404).json({ error: '无版本记录' });
+        }
+
+        res.json({
+            article_id,
+            latest_version: latest.version_number,
+            created_at: latest.created_at,
+        });
+    } catch (error) {
+        res.status(500).json({ error: '查询失败' });
     }
 });
 
