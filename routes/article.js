@@ -20,6 +20,97 @@ const {
 // ai 审核 id
 const AI_REVIEWER_ID = parseInt(process.env.AI_REVIEWER_ID, 10) || 0;
 
+// 根据用户ID和状态联合查询文章
+router.get('/user/:user_id/status', async (req, res) => {
+    const user_id = parseInt(req.params.user_id, 10);
+    const { status } = req.query;
+
+    // 校验 user_id
+    if (isNaN(user_id) || user_id <= 0) {
+        return res.status(400).json({ error: '无效的用户 ID' });
+    }
+
+    const validStatuses = [
+        '草稿',
+        '待审',
+        '待发布',
+        '已发布',
+        '退回修订',
+        '拒绝',
+    ];
+    if (status !== undefined) {
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({
+                error: '无效的状态值，仅支持：草稿、待审、待发布、已发布、退回修订、拒绝',
+            });
+        }
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(
+        50,
+        Math.max(1, parseInt(req.query.pageSize, 10) || 10)
+    );
+    const offset = (page - 1) * pageSize;
+
+    try {
+        const where = { user_id };
+        if (status !== undefined) {
+            where.status = status;
+        }
+
+        const result = await Article.findAndCountAll({
+            where,
+            distinct: true,
+            include: [
+                {
+                    model: Category,
+                    as: 'Category',
+                    attributes: ['category_id', 'category_name'],
+                    include: [
+                        {
+                            model: Category,
+                            as: 'ParentCategory',
+                            attributes: ['category_id', 'category_name'],
+                        },
+                    ],
+                },
+                {
+                    model: Media,
+                    attributes: [
+                        'media_id',
+                        'media_type',
+                        'media_url',
+                        'description',
+                    ],
+                },
+            ],
+            order: [['publish_date', 'DESC']],
+            limit: pageSize,
+            offset: offset,
+            subQuery: false,
+        });
+
+        res.json({
+            user_id,
+            status: status || null,
+            total: result.count,
+            page,
+            pageSize,
+            list: result.rows,
+        });
+    } catch (error) {
+        console.error('按用户ID和状态查询失败:', error);
+        res.status(500).json({
+            error: '查询失败',
+            detail:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
+        });
+    }
+});
+
 // 模糊搜索“待审”状态的文章（标题或内容）
 router.get('/pending/search', async (req, res) => {
     const keyword = req.query.keyword?.trim() || '';
