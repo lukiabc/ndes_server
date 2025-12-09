@@ -14,21 +14,27 @@ function getLocalDateStr() {
 
 // 获取启用的轮播图列表
 router.get('/active', async (req, res) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
 
     try {
         const carousels = await Carousel.findAll({
             where: {
                 is_active: true,
-                // 开始日期 或未设置
-                [Op.or]: [
-                    { start_play_date: null },
-                    { start_play_date: { [Op.lte]: today } },
-                ],
-                // 结束日期 或未设置
-                [Op.or]: [
-                    { end_play_date: null },
-                    { end_play_date: { [Op.gte]: today } },
+                [Op.and]: [
+                    // 开始时间：为空 或 <= today
+                    {
+                        [Op.or]: [
+                            { start_play_date: null },
+                            { start_play_date: { [Op.lte]: today } },
+                        ],
+                    },
+                    // 结束时间：为空 或 >= today
+                    {
+                        [Op.or]: [
+                            { end_play_date: null },
+                            { end_play_date: { [Op.gte]: today } },
+                        ],
+                    },
                 ],
             },
             order: [['sort_order', 'ASC']],
@@ -37,8 +43,12 @@ router.get('/active', async (req, res) => {
                 'article_id',
                 'cover_image',
                 'title',
+                'sort_order',
+                'is_active',
                 'start_play_date',
                 'end_play_date',
+                'created_at',
+                'updated_at',
             ],
             include: [
                 {
@@ -56,8 +66,12 @@ router.get('/active', async (req, res) => {
                 article_id: data.article_id,
                 cover_image: data.cover_image,
                 title: data.title,
+                sort_order: data.sort_order,
+                is_active: data.is_active,
                 start_play_date: data.start_play_date,
                 end_play_date: data.end_play_date,
+                created_at: data.created_at,
+                updated_at: data.updated_at,
                 article: {
                     article_id: data.Article?.article_id,
                     title: data.Article?.title,
@@ -87,6 +101,18 @@ router.get('/list', async (req, res) => {
             order: [['sort_order', 'ASC']],
             limit: pageSize,
             offset,
+            attributes: [
+                'carousel_id',
+                'article_id',
+                'cover_image',
+                'title',
+                'sort_order',
+                'is_active',
+                'start_play_date',
+                'end_play_date',
+                'created_at',
+                'updated_at',
+            ],
             include: [
                 {
                     model: Article,
@@ -100,7 +126,7 @@ router.get('/list', async (req, res) => {
             total: result.count,
             page,
             pageSize,
-            list: result.rows,
+            list: result.rows.map((row) => row.toJSON()),
         });
     } catch (error) {
         console.error('获取轮播图列表失败:', error);
@@ -167,18 +193,22 @@ router.post('/create', async (req, res) => {
 
     // 检查当天已有的启用轮播图数量
     if (is_active) {
-        const today = getLocalDateStr();
+        let targetDate = getLocalDateStr(); // 默认使用当前日期
+
+        if (start_play_date) {
+            targetDate = start_play_date;
+        }
 
         const activeCount = await Carousel.count({
             where: {
                 is_active: true,
                 [Op.or]: [
                     { start_play_date: null },
-                    { start_play_date: { [Op.lte]: today } },
+                    { start_play_date: { [Op.lte]: targetDate } },
                 ],
                 [Op.or]: [
                     { end_play_date: null },
-                    { end_play_date: { [Op.gte]: today } },
+                    { end_play_date: { [Op.gte]: targetDate } },
                 ],
             },
         });
@@ -186,7 +216,7 @@ router.post('/create', async (req, res) => {
         if (activeCount >= 5) {
             return res
                 .status(400)
-                .json({ error: '当天已达到最大轮播图数量限制（最多5个）' });
+                .json({ error: '所选日期已达到最大轮播图数量限制（最多5个）' });
         }
     }
 
@@ -277,7 +307,20 @@ router.put('/edit/:carousel_id', async (req, res) => {
         is_active !== undefined ? Boolean(is_active) : carousel.is_active;
 
     if (willBeActive) {
-        const today = getLocalDateStr();
+        // 确定目标日期：优先使用传入的 start_play_date，否则用原记录的，再否则用今天
+        let targetDate = getLocalDateStr(); // 默认今天
+
+        if (start_play_date !== undefined) {
+            // 如果用户明确传了 start_play_date（包括传 null），以传入值为准
+            if (start_play_date) {
+                targetDate = start_play_date;
+            }
+        } else {
+            // 用户没传 start_play_date，沿用原值（如果原值存在）
+            if (carousel.start_play_date) {
+                targetDate = carousel.start_play_date;
+            }
+        }
 
         const activeCount = await Carousel.count({
             where: {
@@ -285,11 +328,11 @@ router.put('/edit/:carousel_id', async (req, res) => {
                 carousel_id: { [Op.ne]: carousel_id }, // 排除自己
                 [Op.or]: [
                     { start_play_date: null },
-                    { start_play_date: { [Op.lte]: today } },
+                    { start_play_date: { [Op.lte]: targetDate } },
                 ],
                 [Op.or]: [
                     { end_play_date: null },
-                    { end_play_date: { [Op.gte]: today } },
+                    { end_play_date: { [Op.gte]: targetDate } },
                 ],
             },
         });
@@ -297,7 +340,7 @@ router.put('/edit/:carousel_id', async (req, res) => {
         if (activeCount >= 5) {
             return res
                 .status(400)
-                .json({ error: '当天已达到最大轮播图数量限制（最多5个）' });
+                .json({ error: '所选日期已达到最大轮播图数量限制（最多5个）' });
         }
     }
 
