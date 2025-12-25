@@ -36,6 +36,12 @@ module.exports = (sequelize, DataTypes) => {
                 allowNull: true,
                 comment: '用户头像图片URL，可选',
             },
+            status: {
+                type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+                defaultValue: 'pending',
+                allowNull: false,
+                comment: '用户状态，默认pending',
+            },
             created_at: {
                 type: DataTypes.DATE,
                 allowNull: false,
