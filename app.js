@@ -15,6 +15,7 @@ const sensitiveWordRouter = require('./routes/sensitiveWord');
 const articleVersionRouter = require('./routes/articleVersion');
 const carouselRouter = require('./routes/carousels');
 const uploadsRouter = require('./routes/uploads');
+const captchaRouter = require('./routes/captcha');
 
 var cors = require('cors');
 var app = express();
@@ -47,6 +48,7 @@ app.use('/sensitive', sensitiveWordRouter);
 app.use('/articleVersion', articleVersionRouter);
 app.use('/carousel', carouselRouter);
 app.use('/uploads', uploadsRouter);
+app.use('/captcha', captchaRouter);
 
 // 同步所有模型到数据库
 sequelize

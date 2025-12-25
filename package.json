@@ -28,6 +28,7 @@
         "mysql2": "^3.15.3",
         "node-cache": "^5.1.2",
         "node-cron": "^4.2.1",
-        "sequelize": "^6.37.7"
+        "sequelize": "^6.37.7",
+        "svg-captcha": "^1.4.0"
     }
 }

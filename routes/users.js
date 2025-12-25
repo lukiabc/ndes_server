@@ -6,6 +6,8 @@ const { User } = require('../utils/db');
 const { sign } = require('jsonwebtoken');
 const upload = require('../utils/upload');
 const jwtAuth = require('../utils/jwt');
+const captchaStore = require('../utils/captchaStore');
+const { comparePassword } = require('../utils/bcrypt');
 
 // 获取role_id不为1的用户列表
 router.get('/list', async (req, res) => {
@@ -114,19 +116,35 @@ router.put('/update/:userId', upload('avatar'), async (req, res) => {
 
 // 用户登录
 router.post('/login', async (req, res) => {
-    const { username, password } = req.body;
-    console.log(req.body, '111');
-    console.log(username, password, '登录');
+    const { username, password, captcha, captchaId } = req.body;
+
+    // 校验验证码
+    if (!captcha || !captchaId) {
+        return res.status(400).json({ error: '验证码或ID缺失' });
+    }
+
+    const storedCaptcha = captchaStore.get(captchaId);
+    if (!storedCaptcha) {
+        return res.status(400).json({ error: '验证码已过期，请刷新' });
+    }
+
+    if (storedCaptcha.toLowerCase() !== captcha.toLowerCase()) {
+        return res.status(400).json({ error: '验证码错误' });
+    }
+
     try {
-        const user = await User.findOne({
-            where: { username },
-        });
+        const user = await User.findOne({ where: { username } });
+
+        // 统一错误提示，防止信息泄露
         if (!user) {
-            return res.status(404).json({ error: '用户不存在' });
+            return res.status(401).json({ error: '用户名或密码错误' });
         }
-        if (password !== user.password) {
-            return res.status(401).json({ error: '密码错误' });
+
+        const isMatch = await comparePassword(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ error: '用户名或密码错误' });
         }
+
         const token = sign(
             { id: user.user_id, role: user.role_id },
             'suibian',
@@ -141,14 +159,16 @@ router.post('/login', async (req, res) => {
                 username: user.username,
                 email: user.email,
                 role_id: user.role_id,
-                avatar_url: user.avatar_url,
-                token: token,
+                avatar_url: user.avatar_url || '',
+                token,
             },
         };
-        res.json({ userInfo });
+
+        captchaStore.delete(captchaId); // 清除验证码
+        return res.json({ userInfo });
     } catch (error) {
         console.error('登录失败：', error);
-        res.status(500).json({ error: '登录失败' });
+        return res.status(500).json({ error: '服务器内部错误' });
     }
 });
 
