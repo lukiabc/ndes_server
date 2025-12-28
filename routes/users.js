@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
 
-const { Sequelize, Op } = require('sequelize');
+const { Op } = require('sequelize');
 const { User } = require('../utils/db');
 const { sign } = require('jsonwebtoken');
 const upload = require('../utils/upload');
@@ -10,33 +10,46 @@ const captchaStore = require('../utils/captchaStore');
 const { comparePassword, hashPassword } = require('../utils/bcrypt');
 const { sendEmail } = require('../utils/email');
 
-// 获取role_id不为1的用户列表
+// 获取 role_id 不为 1 的用户列表，支持按 username 或 email 模糊搜索
 router.get('/list', async (req, res) => {
-    // 从查询参数获取分页参数，默认第1页，每页10条
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = parseInt(req.query.pageSize) || 10;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(
+        100,
+        Math.max(1, parseInt(req.query.pageSize) || 10)
+    );
+    const keyword = req.query.keyword?.trim() || '';
 
-    // 安全限制：防止 pageSize 过大
-    const limit = Math.min(pageSize, 100); // 最多100条/页
+    const limit = pageSize;
     const offset = (page - 1) * limit;
 
     try {
+        // 基础条件：排除管理员（role_id != 1）
+        const where = {
+            role_id: { [Op.ne]: 1 },
+        };
+
+        // 如果有关键词，添加模糊匹配条件（username 或 email）
+        if (keyword) {
+            where[Op.or] = [
+                { username: { [Op.like]: `%${keyword}%` } },
+                { email: { [Op.like]: `%${keyword}%` } },
+            ];
+        }
+
         const { count, rows } = await User.findAndCountAll({
-            where: {
-                role_id: {
-                    [Sequelize.Op.not]: 1,
-                },
-            },
+            where,
             attributes: [
                 'user_id',
                 'username',
                 'avatar_url',
                 'email',
                 'role_id',
+                'status',
+                'is_disabled',
             ],
             limit,
             offset,
-            order: [['created_at', 'DESC']], // 按创建时间倒序
+            order: [['created_at', 'DESC']],
         });
 
         if (rows.length === 0 && page > 1) {
@@ -45,6 +58,7 @@ router.get('/list', async (req, res) => {
 
         res.json({
             message: '获取成功',
+            keyword: keyword || null,
             pagination: {
                 total: count,
                 page,
@@ -57,11 +71,19 @@ router.get('/list', async (req, res) => {
                 avatar_url: user.avatar_url,
                 email: user.email,
                 role_id: user.role_id,
+                status: user.status,
+                is_disabled: user.is_disabled,
             })),
         });
     } catch (error) {
         console.error('获取用户列表失败：', error);
-        res.status(500).json({ error: '服务器错误', details: error.message });
+        res.status(500).json({
+            error: '服务器错误',
+            detail:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
+        });
     }
 });
 
@@ -94,18 +116,10 @@ router.get('/details/:userId', async (req, res) => {
 });
 
 // 更新用户信息
-router.put('/update/:userId', upload('avatar'), async (req, res) => {
+router.put('/update/:userId', async (req, res) => {
     const { userId } = req.params;
-    const { username, email } = req.body;
+    const { username, email, avatar_url } = req.body;
     const updated_at = new Date();
-
-    let avatar_url = null;
-
-    // 检查是否有上传文件
-    if (req.file) {
-        console.log(req.file.filename, 'req.file');
-        avatar_url = `http://localhost:3000/uploads/${req.file.filename}`;
-    }
 
     try {
         const user = await User.findByPk(userId);
@@ -113,11 +127,10 @@ router.put('/update/:userId', upload('avatar'), async (req, res) => {
             return res.status(404).json({ error: '用户未找到' });
         }
 
-        // 只有当有新文件时才更新 avatar_url，否则保留原值
         await user.update({
             username,
             email,
-            avatar_url: avatar_url || user.avatar_url, // 保留旧头像
+            avatar_url,
             updated_at,
         });
 
@@ -153,7 +166,6 @@ router.post('/login', async (req, res) => {
     try {
         const user = await User.findOne({ where: { username } });
 
-        // 统一错误提示，防止信息泄露
         if (!user) {
             return res.status(401).json({ error: '用户名或密码错误' });
         }
@@ -163,6 +175,13 @@ router.post('/login', async (req, res) => {
             return res
                 .status(403)
                 .json({ error: '账户尚未通过审核，请联系管理员' });
+        }
+
+        // 检查是否被禁用
+        if (user.is_disabled) {
+            return res
+                .status(403)
+                .json({ error: '账号已被禁用，请联系管理员' });
         }
 
         const isMatch = await comparePassword(password, user.password);
@@ -216,11 +235,15 @@ router.post('/register', async (req, res) => {
             return res.status(409).json({ error: '用户名或邮箱已被注册' });
         }
 
+        //  默认头像
+        const defaultAvatar = 'http://localhost:3000/uploads/kk.jpg';
+
         // 创建新用户（默认 role_id=2，status=pending）
         const newUser = await User.create({
             username,
             password: await hashPassword(password),
             email,
+            avatar_url: defaultAvatar, // 添加默认头像
             role_id: 2,
             status: 'pending', // 待审核
             created_at: new Date(),
@@ -251,7 +274,6 @@ router.post('/register', async (req, res) => {
 
 // 获取待审核用户
 router.get('/pending', jwtAuth, async (req, res) => {
-    // 手动检查是否为管理员（因为 jwtAuth 不校验角色）
     if (req.auth && req.auth.role !== 1) {
         return res.status(403).json({ error: '需要管理员权限' });
     }
@@ -262,7 +284,15 @@ router.get('/pending', jwtAuth, async (req, res) => {
                 status: 'pending',
                 role_id: { [Op.ne]: 1 },
             },
-            attributes: ['user_id', 'username', 'email', 'created_at'],
+            attributes: [
+                'user_id',
+                'username',
+                'avatar_url',
+                'email',
+                'role_id',
+                'status',
+                'is_disabled',
+            ],
         });
         res.json({ users: pendingUsers });
     } catch (error) {
@@ -321,6 +351,73 @@ router.post('/review/:userId', jwtAuth, async (req, res) => {
         });
     } catch (error) {
         console.error('审核失败:', error);
+        res.status(500).json({ error: '服务器错误' });
+    }
+});
+
+// 禁用或启用用户账号（仅管理员）
+router.post('/disable/:userId', jwtAuth, async (req, res) => {
+    if (req.auth?.role !== 1) {
+        return res.status(403).json({ error: '需要管理员权限' });
+    }
+
+    const { userId } = req.params;
+    const { disable } = req.body; // true 表示禁用 false 表示启用
+
+    if (typeof disable !== 'boolean') {
+        return res.status(400).json({ error: 'disable 必须是布尔值' });
+    }
+
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ error: '用户不存在' });
+        }
+
+        if (user.role_id === 1) {
+            return res.status(400).json({ error: '不能操作管理员账号' });
+        }
+
+        // 如果状态未改变，直接返回
+        if (user.is_disabled === disable) {
+            return res.json({ message: '状态未改变' });
+        }
+
+        await user.update({ is_disabled: disable, updated_at: new Date() });
+
+        // 发送邮件：根据 disable 状态决定内容
+        if (user.email) {
+            let subject, html;
+
+            if (disable) {
+                // 禁用账号
+                subject = '【账号异常】您的账号已被禁用';
+                html = `
+                    <h3>您好，${user.username}！</h3>
+                    <p>很抱歉地通知您，您的账号因违反平台规则或存在异常行为，已被管理员<strong>临时禁用</strong>。</p>
+                    <p>如您认为这是误操作，请联系管理员申诉。</p>
+                    <hr>
+                    <p><i>此为系统自动邮件，请勿回复。</i></p>
+                `;
+            } else {
+                // 解禁账号
+                subject = '【账号恢复】您的账号已恢复正常';
+                html = `
+                    <h3>您好，${user.username}！</h3>
+                    <p>好消息！您的账号现已<strong>解除禁用</strong>，可以正常登录和使用平台服务。</p>
+                    <p>感谢您的理解与支持！</p>
+                    <hr>
+                    <p><i>此为系统自动邮件，请勿回复。</i></p>
+                `;
+            }
+
+            sendEmail(user.email, subject, html).catch(console.error);
+        }
+
+        const actionText = disable ? '禁用' : '启用';
+        res.json({ message: `用户账号已成功${actionText}` });
+    } catch (error) {
+        console.error('操作账号禁用状态失败:', error);
         res.status(500).json({ error: '服务器错误' });
     }
 });

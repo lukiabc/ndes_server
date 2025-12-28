@@ -42,6 +42,12 @@ module.exports = (sequelize, DataTypes) => {
                 allowNull: false,
                 comment: '用户状态，默认pending',
             },
+            is_disabled: {
+                type: DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: false,
+                comment: '是否被禁用',
+            },
             created_at: {
                 type: DataTypes.DATE,
                 allowNull: false,
