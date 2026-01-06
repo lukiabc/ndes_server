@@ -1,6 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { sequelize, Carousel, Article } = require('../utils/db');
+const {
+    sequelize,
+    Carousel,
+    Article,
+    Media,
+    Category,
+} = require('../utils/db');
 const { Op } = require('sequelize');
 
 // 获取本地日期字符串
@@ -11,6 +17,86 @@ function getLocalDateStr() {
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 }
+
+// 获取每个父分类下发布时间最早的 5 篇带图文章
+router.get('/parent/:parentId', async (req, res) => {
+    const { parentId } = req.params;
+    const parentIdNum = Number(parentId);
+
+    // 参数校验
+    if (!Number.isInteger(parentIdNum) || parentIdNum <= 0) {
+        return res.status(400).json({ error: '父分类 ID 必须为正整数' });
+    }
+
+    try {
+        //  验证父分类是否存在
+        const parentCategory = await Category.findByPk(parentIdNum);
+        if (!parentCategory) {
+            return res.status(404).json({ error: '父分类不存在' });
+        }
+
+        //获取该父分类下的所有直接子分类 ID
+        const subCategories = await Category.findAll({
+            where: { parent_id: parentIdNum },
+            attributes: ['category_id'],
+        });
+
+        const subCategoryIds = subCategories.map((c) => c.category_id);
+
+        // 若无子分类，返回空列表
+        if (subCategoryIds.length === 0) {
+            return res.json({ list: [] });
+        }
+
+        // 查询最新 5 篇：已发布 + 有图（media_type='image'）+ 按 publish_date 降序
+        const articles = await Article.findAll({
+            where: {
+                category_id: { [Op.in]: subCategoryIds },
+                status: '已发布',
+                publish_date: { [Op.not]: null },
+            },
+            include: [
+                {
+                    model: Media,
+                    as: 'Media',
+                    where: { media_type: 'image' },
+                    attributes: ['media_url'],
+                    required: true, // 内连接，确保至少有一张图
+                },
+                {
+                    model: Category,
+                    as: 'Category',
+                    attributes: ['category_name'],
+                },
+            ],
+            order: [['publish_date', 'DESC']],
+            limit: 5,
+            distinct: true,
+            subQuery: false,
+        });
+
+        // 格式化响应数据
+        const list = articles.map((article) => {
+            const data = article.toJSON();
+            return {
+                article_id: data.article_id,
+                title: data.title,
+                image: data.Media[0]?.media_url || '',
+            };
+        });
+
+        res.json({ list });
+    } catch (error) {
+        console.error('获取轮播图候选文章失败:', error);
+        res.status(500).json({
+            error: '服务器内部错误',
+            detail:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined,
+        });
+    }
+});
 
 // 获取启用的轮播图列表
 router.get('/active', async (req, res) => {
