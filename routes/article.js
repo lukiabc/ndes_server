@@ -455,8 +455,8 @@ router.post('/create', async (req, res) => {
         source,
         editor,
         user_id,
-        action = 'submit', // ← 新增！默认 submit
-        scheduled_publish_date: scheduledTimeStr, // ← 重命名避免冲突
+        action = 'submit',
+        scheduled_publish_date: scheduledTimeStr,
     } = req.body;
 
     const validActions = ['save', 'submit', 'schedule'];
@@ -466,7 +466,7 @@ router.post('/create', async (req, res) => {
             .json({ error: '无效的操作类型，仅支持 save / submit / schedule' });
     }
 
-    // 必填校验（注意：草稿可考虑放宽，但你当前要求必填，保留）
+    // 必填校验
     if (!title || !content || !category_id || !user_id) {
         return res
             .status(400)

@@ -1,4 +1,5 @@
 const { DataTypes, Model } = require('sequelize');
+const chinaDateTimeGetter = require('../utils/chinaDateTimeGetter');
 
 module.exports = (sequelize, DataTypes) => {
     class SensitiveWord extends Model {}
@@ -20,6 +21,7 @@ module.exports = (sequelize, DataTypes) => {
                 type: DataTypes.DATE,
                 defaultValue: DataTypes.NOW,
                 comment: '添加时间',
+                get: chinaDateTimeGetter('created_at'),
             },
             type: {
                 type: DataTypes.ENUM('keyword', 'regex'),

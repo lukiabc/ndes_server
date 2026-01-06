@@ -4,10 +4,8 @@ const { Sequelize } = require('sequelize');
 
 module.exports = () => {
     cron.schedule('*/1 * * * *', async () => {
-        const nowUTC = new Date();
-        const nowBeijing = new Date(nowUTC.getTime() + 8 * 60 * 60 * 1000); // 北京时间
         console.log(
-            `[Scheduled Publish] 开始检查待发布文章: ${nowBeijing.toLocaleString(
+            `[Scheduled Publish] 开始检查待发布文章: ${new Date().toLocaleString(
                 'zh-CN'
             )}`
         );
@@ -20,7 +18,7 @@ module.exports = () => {
                 where: {
                     status: '待发布',
                     scheduled_publish_date: {
-                        [Sequelize.Op.lte]: nowBeijing, //  使用北京时间比较
+                        [Sequelize.Op.lte]: new Date().toLocaleString('zh-CN'), //  使用当前时间比较
                     },
                 },
                 transaction,
@@ -41,7 +39,7 @@ module.exports = () => {
                 article.update(
                     {
                         status: '已发布',
-                        publish_date: nowBeijing,
+                        publish_date: new Date().toLocaleString('zh-CN'),
                     },
                     { transaction }
                 )

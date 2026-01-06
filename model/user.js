@@ -1,4 +1,5 @@
-const { DataTypes, Model, Sequelize } = require('sequelize');
+const { DataTypes, Model } = require('sequelize');
+const chinaDateTimeGetter = require('../utils/chinaDateTimeGetter');
 
 module.exports = (sequelize, DataTypes) => {
     class User extends Model {}
@@ -53,12 +54,14 @@ module.exports = (sequelize, DataTypes) => {
                 allowNull: false,
                 defaultValue: sequelize.literal('CURRENT_TIMESTAMP'),
                 comment: '用户创建时间',
+                get: chinaDateTimeGetter('created_at'),
             },
             updated_at: {
                 type: DataTypes.DATE,
                 allowNull: false,
                 defaultValue: sequelize.literal('CURRENT_TIMESTAMP'),
                 comment: '用户更新时间',
+                get: chinaDateTimeGetter('updated_at'),
             },
         },
         {

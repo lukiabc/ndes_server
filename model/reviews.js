@@ -1,4 +1,5 @@
 const { DataTypes, Model, Sequelize } = require('sequelize');
+const chinaDateTimeGetter = require('../utils/chinaDateTimeGetter');
 
 module.exports = (sequelize, DataTypes) => {
     class Review extends Model {}
@@ -34,6 +35,7 @@ module.exports = (sequelize, DataTypes) => {
                 type: DataTypes.DATE,
                 defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
                 comment: '审核时间，默认当前时间',
+                get: chinaDateTimeGetter('review_time'),
             },
         },
         {

@@ -3,6 +3,7 @@ const { Sequelize } = require('sequelize');
 const sequelize = new Sequelize('ndes_db', 'root', '127280', {
     host: 'localhost',
     dialect: 'mysql',
+    timezone: '+08:00',
     pool: {
         max: 5,
         min: 0,
@@ -114,6 +115,7 @@ sequelize
     .authenticate()
     .then(() => {
         console.log('数据库连接成功');
+        console.log('时间', new Date().toLocaleString('zh-CN'));
     })
     .catch((err) => {
         console.error('数据库连接失败：', err);

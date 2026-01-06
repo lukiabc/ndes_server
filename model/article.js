@@ -1,4 +1,5 @@
 const { DataTypes, Model } = require('sequelize');
+const chinaDateTimeGetter = require('../utils/chinaDateTimeGetter');
 
 module.exports = (sequelize, DataTypes) => {
     class Article extends Model {}
@@ -50,6 +51,8 @@ module.exports = (sequelize, DataTypes) => {
                 type: DataTypes.DATE,
                 allowNull: true,
                 comment: '实际发布时间，文章正式上线的时间',
+                // 自定义 getter 函数，将数据库时间转换为中国时间
+                get: chinaDateTimeGetter('publish_date'),
             },
             content: {
                 type: DataTypes.TEXT,
@@ -72,6 +75,7 @@ module.exports = (sequelize, DataTypes) => {
                 type: DataTypes.DATE,
                 allowNull: true,
                 comment: '计划发布时间，可为空表示立即发布',
+                get: chinaDateTimeGetter('scheduled_publish_date'),
             },
         },
         {
