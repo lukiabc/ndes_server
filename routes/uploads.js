@@ -13,9 +13,10 @@ router.post('/', upload('file', 10), (req, res) => {
 
         // 构造返回给 wangEditor 的数据
         const files = req.files.map((file) => ({
-            url: `${req.protocol}://${req.get('host')}/uploads/${
-                file.filename
-            }`,
+            // url: `${req.protocol}://${req.get('host')}/uploads/${
+            //     file.filename
+            // }`,
+            url: file.url,
             originalname: file.originalname,
             filename: file.filename,
         }));

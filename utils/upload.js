@@ -1,25 +1,59 @@
-//  上传文件
+// utils/upload.js
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs').promises;
 const crypto = require('crypto');
+const { Octokit } = require('@octokit/rest');
+require('dotenv').config();
 
-const dir = path.join(__dirname, '../uploads');
+// 从 .env 读取配置
+const GITHUB_REPO = process.env.GITHUB_REPO;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
-// 确保上传目录存在
-(async () => {
-    try {
-        await fs.access(dir);
-    } catch {
-        await fs.mkdir(dir, { recursive: true });
-    }
-})();
+if (!GITHUB_REPO || !GITHUB_TOKEN) {
+    throw new Error('缺少 .env 中的 GITHUB_REPO 或 GITHUB_TOKEN');
+}
 
-// 计算文件的哈希值
+const [owner, repo] = GITHUB_REPO.split('/');
+
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
+
+// 计算文件 MD5 哈希（用于去重和命名）
 function getHash(buffer, algorithm = 'md5') {
     return crypto.createHash(algorithm).update(buffer).digest('hex');
 }
 
+// 上传单个文件到 GitHub（若不存在）
+async function uploadToGitHub(buffer, filename) {
+    try {
+        // 检查文件是否已存在
+        await octokit.repos.getContent({
+            owner,
+            repo,
+            path: filename,
+        });
+        console.log(`文件已存在，跳过上传: ${filename}`);
+        return;
+    } catch (error) {
+        if (error.status !== 404) {
+            throw error; // 其他错误（如权限、网络）抛出
+        }
+        // 404 表示文件不存在，继续上传
+    }
+
+    // 上传新文件
+    const contentBase64 = buffer.toString('base64');
+    await octokit.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path: filename,
+        message: `Upload media: ${filename}`,
+        content: contentBase64,
+        encoding: 'base64',
+    });
+    console.log(`成功上传到 GitHub: ${filename}`);
+}
+
+// 导出中间件
 function upload(fieldname = 'file', maxCount = 10) {
     const uploads = multer({ storage: multer.memoryStorage() });
 
@@ -30,41 +64,37 @@ function upload(fieldname = 'file', maxCount = 10) {
                 return next();
             }
 
-            const savedFiles = [];
+            const processedFiles = [];
 
             for (const file of req.files) {
-                // 计算哈希
-                const hash = getHash(file.buffer); // md5
+                // 1. 计算哈希名
+                const hash = getHash(file.buffer);
                 const ext =
                     path.extname(file.originalname).toLowerCase() || '.bin';
                 const filename = `${hash}${ext}`;
-                const filePath = path.join(dir, filename);
 
-                //  检查是否已存在
-                let exists = false;
+                // 2. 生成 CDN 链接（无论是否上传成功都可用）
+                const cdnUrl = `https://raw.githubusercontent.com/lukiabc/media/main/${filename}`;
+
+                // 3. 尝试上传到 GitHub（自动去重）
                 try {
-                    await fs.access(filePath);
-                    exists = true;
-                } catch {}
-
-                //  如果不存在，写入文件
-                if (!exists) {
-                    await fs.writeFile(filePath, file.buffer);
+                    await uploadToGitHub(file.buffer, filename);
+                } catch (err) {
+                    console.error(`⚠️ 上传失败 (${filename}):`, err.message);
+                    // 即使失败也保留 CDN 链接（可能之前已存在）
                 }
 
-                //  替换 file 对象，使其符合后续逻辑（如你的 router 中的 req.files）
-                savedFiles.push({
+                // 4. 构造新文件对象，供路由使用
+                processedFiles.push({
                     ...file,
-                    filename: filename, // 关键：使用哈希名
-                    path: filePath,
-                    mimetype: file.mimetype,
+                    filename: filename,
                     originalname: file.originalname,
+                    mimetype: file.mimetype,
+                    url: cdnUrl,
                 });
             }
 
-            // 将处理后的文件挂回 req
-            req.files = savedFiles;
-
+            req.files = processedFiles;
             next();
         },
     ];
