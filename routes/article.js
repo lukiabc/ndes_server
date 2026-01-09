@@ -631,26 +631,27 @@ router.post('/create', async (req, res) => {
             try {
                 const mediaFiles = await extractAllMediaUrls(finalContent);
                 if (mediaFiles.length > 0) {
-                    const mediaList = mediaFiles.map(({ media_url, tag }) => ({
-                        article_id: article.article_id,
-                        media_type:
-                            tag === 'image'
-                                ? 'image'
-                                : tag === 'video'
-                                ? 'video'
-                                : tag === 'audio'
-                                ? 'audio'
-                                : 'attachment',
-                        media_url: media_url,
-                        description: media_url.split('/').pop(),
-                        created_at: new Date(),
-                    }));
+                    const mediaList = mediaFiles.map(
+                        ({ media_url, tag, description }) => ({
+                            article_id: article.article_id,
+                            media_type:
+                                tag === 'image'
+                                    ? 'image'
+                                    : tag === 'video'
+                                    ? 'video'
+                                    : tag === 'audio'
+                                    ? 'audio'
+                                    : 'attachment',
+                            media_url,
+                            description, // 👈 直接使用
+                            created_at: new Date(),
+                        })
+                    );
 
                     const records = await Media.bulkCreate(mediaList, {
                         transaction,
                         returning: true,
                     });
-
                     uploadedMedia = records.map((r) => ({
                         media_id: r.media_id,
                         media_type: r.media_type,
@@ -890,33 +891,34 @@ router.put('/edit/:article_id', async (req, res) => {
         let uploadedMedia = [];
         if (finalContent) {
             try {
-                const mediaFiles = await extractAllMediaUrls(finalContent); // ←
+                const mediaFiles = await extractAllMediaUrls(finalContent);
                 if (mediaFiles.length > 0) {
-                    const mediaList = mediaFiles.map(({ media_url, tag }) => ({
-                        article_id: article.article_id,
-                        media_type:
-                            tag === 'image'
-                                ? 'image'
-                                : tag === 'video'
-                                ? 'video'
-                                : tag === 'audio'
-                                ? 'audio'
-                                : 'attachment',
-                        media_url: media_url,
-                        description: media_url.split('/').pop(),
-                        created_at: new Date(),
-                    }));
+                    const mediaList = mediaFiles.map(
+                        ({ media_url, tag, description }) => ({
+                            article_id: article.article_id,
+                            media_type:
+                                tag === 'image'
+                                    ? 'image'
+                                    : tag === 'video'
+                                    ? 'video'
+                                    : tag === 'audio'
+                                    ? 'audio'
+                                    : 'attachment',
+                            media_url,
+                            description, // 👈 直接使用
+                            created_at: new Date(),
+                        })
+                    );
 
                     const records = await Media.bulkCreate(mediaList, {
                         transaction,
                         returning: true,
                     });
-
-                    uploadedMedia = records.map((r, i) => ({
+                    uploadedMedia = records.map((r) => ({
                         media_id: r.media_id,
+                        media_type: r.media_type,
                         media_url: r.media_url,
                         description: r.description,
-                        filename: mediaFiles[i].filename,
                     }));
                 }
             } catch (err) {
