@@ -1,6 +1,6 @@
 var express = require('express');
 var router = express.Router();
-const upload = require('../utils/upload');
+const { upload } = require('../utils/upload');
 
 router.post('/', upload('file', 10), (req, res) => {
     try {

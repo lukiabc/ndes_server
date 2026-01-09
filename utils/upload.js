@@ -100,4 +100,8 @@ function upload(fieldname = 'file', maxCount = 10) {
     ];
 }
 
-module.exports = upload;
+module.exports = {
+    upload,
+    uploadToGitHub,
+    getHash,
+};

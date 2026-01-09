@@ -1,13 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { performReview } = require('../utils/ai-review');
-const { extractLocalMediaFilenames } = require('../utils/media');
-const { localizeRemoteImages } = require('../utils/localizeRemoteImages');
+const { extractAllMediaUrls } = require('../utils/extractAllMediaUrls');
 const { Op } = require('sequelize');
 
 const { Sequelize } = require('sequelize');
 const { filter } = require('../utils/sensitive');
-const MEDIA_BASE_URL = 'http://localhost:3000/uploads/';
 const {
     sequelize,
     Article,
@@ -593,16 +591,7 @@ router.post('/create', async (req, res) => {
         console.log('========== [DEBUG] 草稿模式结束 ==========\n');
     }
 
-    // 本地化外链图片
-    let finalContent = content;
-    if (content) {
-        try {
-            const { html: localizedHtml } = await localizeRemoteImages(content);
-            finalContent = localizedHtml;
-        } catch (err) {
-            console.warn('⚠️ 图片本地化失败，使用原始内容:', err.message);
-        }
-    }
+    const finalContent = content;
 
     const transaction = await sequelize.transaction();
     try {
@@ -640,22 +629,20 @@ router.post('/create', async (req, res) => {
         let uploadedMedia = [];
         if (finalContent) {
             try {
-                const mediaFiles = await extractLocalMediaFilenames(
-                    finalContent
-                );
+                const mediaFiles = await extractAllMediaUrls(finalContent);
                 if (mediaFiles.length > 0) {
-                    const mediaList = mediaFiles.map(({ filename, tag }) => ({
+                    const mediaList = mediaFiles.map(({ media_url, tag }) => ({
                         article_id: article.article_id,
                         media_type:
-                            tag === 'img'
+                            tag === 'image'
                                 ? 'image'
                                 : tag === 'video'
                                 ? 'video'
                                 : tag === 'audio'
                                 ? 'audio'
                                 : 'attachment',
-                        media_url: `${MEDIA_BASE_URL}${filename}`,
-                        description: filename,
+                        media_url: media_url,
+                        description: media_url.split('/').pop(),
                         created_at: new Date(),
                     }));
 
@@ -853,16 +840,7 @@ router.put('/edit/:article_id', async (req, res) => {
         console.log('========== [DEBUG] 草稿模式结束 ==========\n');
     }
 
-    // ====== 本地化外链图片 ======
-    let finalContent = content;
-    if (content) {
-        try {
-            const { html: localizedHtml } = await localizeRemoteImages(content);
-            finalContent = localizedHtml;
-        } catch (err) {
-            console.warn('⚠️ 编辑时图片本地化失败，使用原始内容:', err.message);
-        }
-    }
+    const finalContent = content;
 
     const transaction = await sequelize.transaction();
     try {
@@ -912,22 +890,20 @@ router.put('/edit/:article_id', async (req, res) => {
         let uploadedMedia = [];
         if (finalContent) {
             try {
-                const mediaFiles = await extractLocalMediaFilenames(
-                    finalContent
-                ); // ←
+                const mediaFiles = await extractAllMediaUrls(finalContent); // ←
                 if (mediaFiles.length > 0) {
-                    const mediaList = mediaFiles.map(({ filename, tag }) => ({
-                        article_id,
+                    const mediaList = mediaFiles.map(({ media_url, tag }) => ({
+                        article_id: article.article_id,
                         media_type:
-                            tag === 'img'
+                            tag === 'image'
                                 ? 'image'
                                 : tag === 'video'
                                 ? 'video'
                                 : tag === 'audio'
                                 ? 'audio'
                                 : 'attachment',
-                        media_url: `${MEDIA_BASE_URL}${filename}`,
-                        description: filename,
+                        media_url: media_url,
+                        description: media_url.split('/').pop(),
                         created_at: new Date(),
                     }));
 
