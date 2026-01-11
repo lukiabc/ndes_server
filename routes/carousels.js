@@ -9,7 +9,7 @@ const {
 } = require('../utils/db');
 const { Op } = require('sequelize');
 
-// 获取本地日期字符串
+// 获取当前系统时间
 function getLocalDateStr() {
     const now = new Date();
     const year = now.getFullYear();
@@ -35,12 +35,13 @@ router.get('/parent/:parentId', async (req, res) => {
             return res.status(404).json({ error: '父分类不存在' });
         }
 
-        //获取该父分类下的所有直接子分类 ID
+        //查询该父分类下的所有直接子分类 ID
         const subCategories = await Category.findAll({
             where: { parent_id: parentIdNum },
             attributes: ['category_id'],
         });
 
+        // 提取子分类 ID 数组
         const subCategoryIds = subCategories.map((c) => c.category_id);
 
         // 若无子分类，返回空列表
@@ -48,7 +49,7 @@ router.get('/parent/:parentId', async (req, res) => {
             return res.json({ list: [] });
         }
 
-        // 查询最新 5 篇：已发布 + 有图（media_type='image'）+ 按 publish_date 降序
+        // 查询这些子分类下“已发布”且“有图”的文章
         const articles = await Article.findAll({
             where: {
                 category_id: { [Op.in]: subCategoryIds },
@@ -100,9 +101,11 @@ router.get('/parent/:parentId', async (req, res) => {
 
 // 获取启用的轮播图列表
 router.get('/active', async (req, res) => {
-    const today = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
+    // 获取当前日期
+    const today = new Date().toISOString().split('T')[0];
 
     try {
+        // 查询所有“启用中”且“再有效期内”的轮播图
         const carousels = await Carousel.findAll({
             where: {
                 is_active: true,
@@ -393,16 +396,16 @@ router.put('/edit/:carousel_id', async (req, res) => {
         is_active !== undefined ? Boolean(is_active) : carousel.is_active;
 
     if (willBeActive) {
-        // 确定目标日期：优先使用传入的 start_play_date，否则用原记录的，再否则用今天
+        // 确定目标日期：优先使用传入的 start_play_date 否则用原记录的，再否则用今天
         let targetDate = getLocalDateStr(); // 默认今天
 
         if (start_play_date !== undefined) {
-            // 如果用户明确传了 start_play_date（包括传 null），以传入值为准
+            // 如果用户明确传了 start_play_date 以传入值为准
             if (start_play_date) {
                 targetDate = start_play_date;
             }
         } else {
-            // 用户没传 start_play_date，沿用原值（如果原值存在）
+            // 用户没传 start_play_date 沿用原值（如果原值存在）
             if (carousel.start_play_date) {
                 targetDate = carousel.start_play_date;
             }

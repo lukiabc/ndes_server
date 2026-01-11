@@ -6,7 +6,7 @@ const { Category } = require('../utils/db');
 
 // 模糊查询分类
 router.get('/search', async (req, res) => {
-    const { category_name, page = 1, pageSize = 10 } = req.query; // 获取分页参数，默认值为第1页，每页10条
+    const { category_name, page = 1, pageSize = 10 } = req.query;
 
     if (
         !category_name ||
@@ -17,7 +17,7 @@ router.get('/search', async (req, res) => {
     }
 
     const trimmedKeyword = category_name.trim();
-    const offset = (parseInt(page) - 1) * parseInt(pageSize); // 计算偏移量
+    const offset = (parseInt(page) - 1) * parseInt(pageSize);
     const limit = parseInt(pageSize);
 
     try {
@@ -50,7 +50,7 @@ router.get('/search', async (req, res) => {
                 page: parseInt(page),
                 pageSize: limit,
                 total: total,
-                totalPages: Math.ceil(total / limit),
+                totalPages: Math.ceil(total / limit), // 总页数向上取整
             },
         });
     } catch (error) {
@@ -115,7 +115,7 @@ router.get('/list', async (req, res) => {
     }
 });
 
-// 根据分类ID获取所有子分类（递归）
+// 根据分类ID获取所有子分类
 router.get('/children/:category_id', async (req, res) => {
     const { category_id } = req.params;
 
@@ -134,12 +134,16 @@ router.get('/children/:category_id', async (req, res) => {
 
         // 递归获取所有子分类
         const getAllChildren = async (parentId) => {
+            // 查询直接子分类
             const children = await Category.findAll({
                 where: { parent_id: parentId },
                 order: [['sort_order', 'ASC']],
             });
 
+            // 初始化结果集
             let result = [...children];
+
+            // 对每个子分类递归获取其子分类
             for (const child of children) {
                 const grandchildren = await getAllChildren(child.category_id);
                 result = result.concat(grandchildren);
@@ -164,6 +168,7 @@ router.get('/children/:category_id', async (req, res) => {
 router.post('/create', async (req, res) => {
     const { category_name, parent_id } = req.body;
     try {
+        // 创建分类记录
         const category = await Category.create({
             category_name,
             parent_id: parent_id || null, // 默认父分类ID为null
@@ -180,6 +185,7 @@ router.put('/update/:category_id', async (req, res) => {
     const { category_name, parent_id, sort_order } = req.body;
     const category_id = parseInt(req.params.category_id);
     try {
+        // 执行更新操作
         const [updatedRows] = await Category.update(
             {
                 category_name,
@@ -221,14 +227,18 @@ router.delete('/delete/:category_id', async (req, res) => {
 router.delete('/deleteAll/:category_id', async (req, res) => {
     const category_id = parseInt(req.params.category_id);
     try {
-        // 递归删除所有子分类
+        // 递归删除所有子分类 先删子节点 再删当前节点（深度优先）
         const deleteCategoryAndChildren = async (id) => {
+            // 查找所有直接子分类
             const children = await Category.findAll({
                 where: { parent_id: id },
             });
+
+            // 递归删除每个子分类
             for (const child of children) {
                 await deleteCategoryAndChildren(child.category_id);
             }
+            // 删除当前分类
             await Category.destroy({ where: { category_id: id } });
         };
 

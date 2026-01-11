@@ -528,12 +528,13 @@ router.post('/create', async (req, res) => {
                     .json({ error: '定时发布必须提供 scheduled_publish_date' });
             }
 
+            // 定时发布  校验时间 > 当前时间
             scheduled_publish_date = new Date(scheduledTimeStr);
             if (
                 isNaN(scheduled_publish_date.getTime()) ||
                 scheduled_publish_date <= new Date()
             ) {
-                console.log('[定时发布] ❌ 定时发布时间无效');
+                console.log('[定时发布] 定时发布时间无效');
                 console.log('========== [DEBUG] 内容审核结束 ==========\n');
                 return res
                     .status(400)
@@ -541,6 +542,7 @@ router.post('/create', async (req, res) => {
             }
 
             console.log('[定时发布] 开始内容审核（定时发布模式）...');
+            // 调用 AI 审核（定时发布模式）
             const decision = await performReview(title, content, true); // 第三个参数表示定时发布
             status = decision.status;
             reviewLog = decision.reviewLog;
@@ -553,12 +555,12 @@ router.post('/create', async (req, res) => {
                 );
             } else if (status === '拒绝') {
                 scheduled_publish_date = null;
-                console.log('[定时发布] ❌ 审核拒绝，文章将标记为拒绝状态');
+                console.log('[定时发布] 审核拒绝，文章将标记为拒绝状态');
             } else if (status === '待审') {
-                console.log('[定时发布] ⚠️ 审核疑似违规，需要人工审核');
+                console.log('[定时发布] 审核疑似违规，需要人工审核');
             }
         } else if (action === 'submit') {
-            // 立即投稿
+            // 立即投稿 调用 AI 审核（立即发布模式）
             console.log('[投稿发布] 开始内容审核...');
             const decision = await performReview(title, content, false);
             status = decision.status;
@@ -566,14 +568,15 @@ router.post('/create', async (req, res) => {
             reviewLog = decision.reviewLog;
 
             if (status === '已发布') {
-                console.log('[投稿发布] ✅ 审核完全通过，文章将自动发布');
+                console.log('[投稿发布] 审核完全通过，文章将自动发布');
             } else if (status === '待审') {
-                console.log('[投稿发布] ⚠️ 审核疑似违规，需要人工审核');
+                console.log('[投稿发布] 审核疑似违规，需要人工审核');
             } else if (status === '拒绝') {
-                console.log('[投稿发布] ❌ 审核拒绝，文章将标记为拒绝状态');
+                console.log('[投稿发布] 审核拒绝，文章将标记为拒绝状态');
             }
         }
 
+        // 记录审核日志
         if (reviewLog) {
             reviewLog = {
                 ...reviewLog,
@@ -591,6 +594,7 @@ router.post('/create', async (req, res) => {
         console.log('========== [DEBUG] 草稿模式结束 ==========\n');
     }
 
+    // 最终内容（草稿模式下直接使用原始内容）
     const finalContent = content;
 
     const transaction = await sequelize.transaction();
@@ -618,17 +622,18 @@ router.post('/create', async (req, res) => {
                 user_id,
                 version_number: 1,
                 title,
-                content: finalContent, // 注意：这里应存处理后的 content（含本地图）
+                content: finalContent,
                 editor: editor || 'unknown',
                 created_at: new Date(),
             },
             { transaction }
         );
 
-        // 处理媒体文件
+        // 提取并保存媒体文件
         let uploadedMedia = [];
         if (finalContent) {
             try {
+                // 提取所有媒体 URL
                 const mediaFiles = await extractAllMediaUrls(finalContent);
                 if (mediaFiles.length > 0) {
                     const mediaList = mediaFiles.map(
@@ -643,11 +648,12 @@ router.post('/create', async (req, res) => {
                                     ? 'audio'
                                     : 'attachment',
                             media_url,
-                            description, // 👈 直接使用
+                            description,
                             created_at: new Date(),
                         })
                     );
 
+                    // 批量创建媒体记录
                     const records = await Media.bulkCreate(mediaList, {
                         transaction,
                         returning: true,
@@ -664,13 +670,13 @@ router.post('/create', async (req, res) => {
             }
         }
 
-        // 记录审核日志
+        // 保存审核日志
         if (reviewLog) {
             reviewLog.article_id = article.article_id;
             try {
                 await Reviews.create(reviewLog, { transaction });
                 console.log(
-                    `[创建文章] ✓ AI 审核日志已保存（审核人ID: ${AI_REVIEWER_ID})`
+                    `[创建文章] AI 审核日志已保存（审核人ID: ${AI_REVIEWER_ID})`
                 );
             } catch (err) {
                 console.warn(
@@ -790,7 +796,7 @@ router.put('/edit/:article_id', async (req, res) => {
             // 定时发布：需要审核
             const time = new Date(req.body.scheduled_publish_date);
             if (isNaN(time.getTime()) || time <= new Date()) {
-                console.log('[定时发布] ❌ 定时发布时间无效');
+                console.log('[定时发布] 定时发布时间无效');
                 console.log('========== [DEBUG] 内容审核结束 ==========\n');
                 return res
                     .status(400)
@@ -806,14 +812,14 @@ router.put('/edit/:article_id', async (req, res) => {
             if (status === '待发布') {
                 publish_date = null;
                 console.log(
-                    '[定时发布] ✓ 审核通过，已设置定时发布:',
+                    '[定时发布] 审核通过，已设置定时发布:',
                     scheduled_publish_date
                 );
             } else if (status === '拒绝') {
                 scheduled_publish_date = null;
-                console.log('[定时发布] ❌ 审核拒绝，文章将标记为拒绝状态');
+                console.log('[定时发布] 审核拒绝，文章将标记为拒绝状态');
             } else if (status === '待审') {
-                console.log('[定时发布] ⚠️  审核疑似违规，需要人工审核');
+                console.log('[定时发布] 审核疑似违规，需要人工审核');
             }
         } else {
             // submit 提交：走审核流程
@@ -824,11 +830,11 @@ router.put('/edit/:article_id', async (req, res) => {
             reviewLog = decision.reviewLog;
 
             if (status === '已发布') {
-                console.log('[投稿发布] ✅ 审核完全通过，文章将自动发布');
+                console.log('[投稿发布] 审核完全通过，文章将自动发布');
             } else if (status === '待审') {
-                console.log('[投稿发布] ⚠️  审核疑似违规，需要人工审核');
+                console.log('[投稿发布] 审核疑似违规，需要人工审核');
             } else if (status === '拒绝') {
-                console.log('[投稿发布] ❌ 审核拒绝，文章将标记为拒绝状态');
+                console.log('[投稿发布] 审核拒绝，文章将标记为拒绝状态');
             }
         }
 
@@ -1321,7 +1327,7 @@ router.get('/searchAll', async (req, res) => {
     );
     const offset = (page - 1) * pageSize;
 
-    // ===== 辅助函数（纯文本处理 + 句子提取）=====
+    // 去除 HTML 标签
     function stripHtml(html) {
         if (!html) return '';
         // 移除所有 HTML 标签，替换为单个空格
@@ -1331,6 +1337,7 @@ router.get('/searchAll', async (req, res) => {
             .trim();
     }
 
+    // 提取包含关键字的完整句子
     function extractSentenceWithKeyword(text, keyword) {
         if (!text || !keyword) return '';
 
@@ -1367,11 +1374,11 @@ router.get('/searchAll', async (req, res) => {
             }
         }
 
-        // 降级：返回前80字符
+        // 降级 返回前80字符
         return text.length > 80 ? text.substring(0, 80) + '...' : text;
     }
 
-    // 高亮函数（支持正则特殊字符转义）
+    // 高亮函数
     const escapeRegExp = (string) => {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     };
@@ -1382,16 +1389,16 @@ router.get('/searchAll', async (req, res) => {
         const regex = new RegExp(`(${escapedKey})`, 'gi');
         return txt.replace(regex, '<mark>$1</mark>');
     };
-    // ============================================
 
     try {
         let results;
-        const isShortWord = replacedQ.length <= 2;
+        const isShortWord = replacedQ.length <= 2; // 短词
         const wantPublishedOnly = req.query.status === 'published';
 
         if (isShortWord) {
             console.log(`[SEARCH] 使用 LIKE 模式搜索短词: ${replacedQ}`);
 
+            // 短词使用 LIKE 模式
             const whereConditions = {
                 [Sequelize.Op.and]: [
                     {
@@ -1466,6 +1473,7 @@ router.get('/searchAll', async (req, res) => {
                 subQuery: false,
             });
         } else {
+            // 长词使用 MySQL FULLTEXT 索引
             console.log(`[SEARCH] 使用 FULLTEXT 模式: ${replacedQ}`);
 
             const statusCondition = wantPublishedOnly
@@ -1522,7 +1530,7 @@ router.get('/searchAll', async (req, res) => {
             });
         }
 
-        // 处理结果：提取句子 + 高亮
+        // 处理每条结果：提取句子 + 高亮
         const list = results.rows.map((row) => {
             const data = row.toJSON();
 

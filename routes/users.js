@@ -4,7 +4,6 @@ var router = express.Router();
 const { Op } = require('sequelize');
 const { User } = require('../utils/db');
 const { sign } = require('jsonwebtoken');
-const upload = require('../utils/upload');
 const jwtAuth = require('../utils/jwt');
 const captchaStore = require('../utils/captchaStore');
 const { comparePassword, hashPassword } = require('../utils/bcrypt');
@@ -23,12 +22,12 @@ router.get('/list', async (req, res) => {
     const offset = (page - 1) * limit;
 
     try {
-        // 基础条件：排除管理员（role_id != 1）
+        // 基础条件 排除管理员 role_id != 1
         const where = {
             role_id: { [Op.ne]: 1 },
         };
 
-        // 如果有关键词，添加模糊匹配条件（username 或 email）
+        // 如有关键词 添加模糊匹配条件 username 或 email
         if (keyword) {
             where[Op.or] = [
                 { username: { [Op.like]: `%${keyword}%` } },
@@ -36,6 +35,7 @@ router.get('/list', async (req, res) => {
             ];
         }
 
+        // 使用 findAndCountAll 获取总数和当前页数据
         const { count, rows } = await User.findAndCountAll({
             where,
             attributes: [
@@ -92,7 +92,7 @@ router.get('/details/:userId', async (req, res) => {
     const { userId } = req.params;
     console.log(userId, '获取用户详情');
     try {
-        // 查询用户详情
+        // 根据主键查找用户
         const user = await User.findByPk(userId, {
             attributes: ['user_id', 'username', 'avatar_url', 'email'],
         });
@@ -134,6 +134,7 @@ router.put('/update/:userId', async (req, res) => {
             updated_at,
         });
 
+        // 重新查询以返回最新数据
         const updatedUser = await User.findByPk(userId);
         res.json({
             message: '用户信息更新成功',
@@ -154,16 +155,19 @@ router.post('/login', async (req, res) => {
         return res.status(400).json({ error: '验证码或ID缺失' });
     }
 
+    // 获取验证码
     const storedCaptcha = captchaStore.get(captchaId);
     if (!storedCaptcha) {
         return res.status(400).json({ error: '验证码已过期，请刷新' });
     }
 
+    // 忽略大小写比对验证码
     if (storedCaptcha.toLowerCase() !== captcha.toLowerCase()) {
         return res.status(400).json({ error: '验证码错误' });
     }
 
     try {
+        // 查找用户名对应的用户
         const user = await User.findOne({ where: { username } });
 
         if (!user) {
@@ -184,11 +188,13 @@ router.post('/login', async (req, res) => {
                 .json({ error: '账号已被禁用，请联系管理员' });
         }
 
+        // 比对密码 使用 bcrypt 中的 comparePassword 方法
         const isMatch = await comparePassword(password, user.password);
         if (!isMatch) {
             return res.status(401).json({ error: '用户名或密码错误' });
         }
 
+        // 生成 JWT token 有效期 7 天
         const token = sign(
             { id: user.user_id, role: user.role_id },
             'suibian',
@@ -208,7 +214,7 @@ router.post('/login', async (req, res) => {
             },
         };
 
-        captchaStore.delete(captchaId); // 清除验证码
+        captchaStore.delete(captchaId); // 清除已使用的验证码 防止重放攻击
         return res.json({ userInfo });
     } catch (error) {
         console.error('登录失败：', error);
@@ -238,19 +244,19 @@ router.post('/register', async (req, res) => {
         //  默认头像
         const defaultAvatar = 'http://localhost:3000/uploads/kk.jpg';
 
-        // 创建新用户（默认 role_id=2，status=pending）
+        // 创建新用户
         const newUser = await User.create({
             username,
-            password: await hashPassword(password),
+            password: await hashPassword(password), // 密码加密存储
             email,
-            avatar_url: defaultAvatar, // 添加默认头像
+            avatar_url: defaultAvatar,
             role_id: 2,
             status: 'pending', // 待审核
             created_at: new Date(),
             updated_at: new Date(),
         });
 
-        // 发送“待审核”邮件（可选）
+        // 发送“待审核”邮件通知
         if (email) {
             sendEmail(
                 email,
@@ -279,6 +285,7 @@ router.get('/pending', jwtAuth, async (req, res) => {
     }
 
     try {
+        // 查询所有待审核用户（不包括管理员）
         const pendingUsers = await User.findAll({
             where: {
                 status: 'pending',
@@ -317,6 +324,7 @@ router.post('/review/:userId', jwtAuth, async (req, res) => {
     }
 
     try {
+        // 查询用户
         const user = await User.findByPk(userId);
         if (!user || !user.email) {
             return res.status(404).json({ error: '用户不存在或未绑定邮箱' });
@@ -328,9 +336,10 @@ router.post('/review/:userId', jwtAuth, async (req, res) => {
             return res.status(400).json({ error: '该用户无需审核' });
         }
 
+        // 更新审核状态
         await user.update({ status: action, updated_at: new Date() });
 
-        // 发送邮件
+        // 根据审核结果发送邮件
         let subject, html;
         if (action === 'approved') {
             subject = '【审核通过】您的账户已激活！';
@@ -383,6 +392,7 @@ router.post('/disable/:userId', jwtAuth, async (req, res) => {
             return res.json({ message: '状态未改变' });
         }
 
+        // 更新禁用状态
         await user.update({ is_disabled: disable, updated_at: new Date() });
 
         // 发送邮件：根据 disable 状态决定内容

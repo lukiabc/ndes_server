@@ -64,7 +64,7 @@ function getGMTDate() {
  * @returns {string} base64 编码的签名
  */
 function signRequest(secret, verb, contentMd5, contentType, date, uri) {
-    // 🔥 阿里云 Green 特有：Content-Type 出现两次
+    // 阿里云 Green 特有：Content-Type 出现两次
     const stringToSign = `${verb}\n${contentType}\n${contentMd5}\n${contentType}\n${date}\n${uri}`;
 
     console.log('=== 开始生成签名 ===');
@@ -82,7 +82,7 @@ function signRequest(secret, verb, contentMd5, contentType, date, uri) {
         .update(stringToSign, 'utf8')
         .digest('base64');
 
-    console.log('✅ 签名成功:', signature);
+    console.log('签名成功:', signature);
     return signature;
 }
 
@@ -100,7 +100,7 @@ async function scanText(text) {
     console.log('原始文本长度:', text.length);
     console.log('AccessKeyId:', ACCESS_KEY_ID);
 
-    // 1. 构造请求体
+    // 构造请求体
     const uuid = `node_${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 6)}`;
@@ -118,7 +118,7 @@ async function scanText(text) {
     const bodyStr = JSON.stringify(requestBody);
     console.log('请求体字符串:', bodyStr);
 
-    // 2. 计算 Content-MD5（base64 编码）
+    // 计算 Content-MD5（base64 编码）
     const contentMd5 = crypto
         .createHash('md5')
         .update(bodyStr, 'utf8')
@@ -130,7 +130,7 @@ async function scanText(text) {
     const uri = '/green/text/scan';
     const dateHeader = getGMTDate(); // 使用精确 GMT 格式
 
-    // 3. 生成签名
+    // 生成签名
     let signature;
     try {
         signature = signRequest(
@@ -142,11 +142,11 @@ async function scanText(text) {
             uri
         );
     } catch (err) {
-        console.error('❌ 签名失败:', err);
+        console.error('签名失败:', err);
         throw new Error(`签名生成失败: ${err.message}`);
     }
 
-    // 4. 构造请求头
+    // 构造请求头
     const headers = {
         'Content-Type': contentType,
         Accept: 'application/json',
@@ -158,7 +158,7 @@ async function scanText(text) {
     console.log('请求头:', headers);
     console.log('目标地址:', `https://${ENDPOINT}${uri}`);
 
-    // 5. 发送 HTTPS 请求
+    // 发送 HTTPS 请求
     return new Promise((resolve, reject) => {
         const req = https.request(
             {
@@ -253,7 +253,7 @@ async function scanText(text) {
             reject(new Error(`网络请求失败: ${err.message}`));
         });
 
-        // 6. 发送请求体
+        //  发送请求体
         req.write(bodyStr);
         console.log('已发送请求体');
         req.end();

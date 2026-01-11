@@ -199,10 +199,11 @@ router.put('/revert/:article_id', async (req, res) => {
         });
     }
 
+    // 检查目标版本是否存在
     const transaction = await sequelize.transaction();
 
     try {
-        // 查询文章是否存在 & 状态是否为草稿
+        // 查询文章是否存在且状态是否为草稿
         const article = await Article.findOne({
             where: { article_id },
             attributes: ['article_id', 'title', 'status', 'editor'],

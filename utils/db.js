@@ -5,10 +5,10 @@ const sequelize = new Sequelize('ndes_db', 'root', '127280', {
     dialect: 'mysql',
     timezone: '+08:00',
     pool: {
-        max: 5,
-        min: 0,
-        acquire: 30000,
-        idle: 10000,
+        max: 5, // 最大连接数 （同时最多5个活跃连接）
+        min: 0, // 最小空闲连接数 ）
+        acquire: 30000, // 获取连接的最大等待时间
+        idle: 10000, // 连接空闲超时时间（10秒后释放）
     },
 });
 
@@ -22,24 +22,25 @@ const SensitiveWord = require('../model/sensitiveWord')(sequelize, Sequelize);
 const ArticleVersion = require('../model/articleVersion')(sequelize, Sequelize);
 const Carousel = require('../model/carousels')(sequelize, Sequelize);
 
-// 关联 User 和 Role
+// 每个用户属于一个角色
 User.belongsTo(Role, { foreignKey: 'role_id' });
 
-// 用户 和 文章（一对多）
+// 一个用户可以发布多篇文章
 User.hasMany(Article, {
     foreignKey: 'user_id',
     as: 'Articles',
 });
+// 每篇文章属于一个作者
 Article.belongsTo(User, {
     foreignKey: 'user_id',
     as: 'Author',
 });
-
-// 用户 和 文章版本（一对多）
+// 一个用户可以编辑多篇文章版本
 User.hasMany(ArticleVersion, {
     foreignKey: 'user_id',
     as: 'EditedVersions',
 });
+// 每篇文章版本属于一个编辑用户
 ArticleVersion.belongsTo(User, {
     foreignKey: 'user_id',
     as: 'EditorUser',
@@ -58,7 +59,7 @@ User.hasMany(Reviews, {
 });
 Reviews.belongsTo(User, {
     foreignKey: 'reviewer',
-    targetKey: 'user_id',
+    targetKey: 'user_id', // 关联到 User 表中的 user_id 字段
     as: 'Reviewer',
 });
 
@@ -66,7 +67,7 @@ Reviews.belongsTo(User, {
 Article.hasMany(Reviews, {
     foreignKey: 'article_id',
     sourceKey: 'article_id',
-    onDelete: 'CASCADE',
+    onDelete: 'CASCADE', // 文章删除 审核记录自动删除
     onUpdate: 'CASCADE',
 });
 Reviews.belongsTo(Article, {

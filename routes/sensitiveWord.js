@@ -11,7 +11,7 @@ router.get('/search', async (req, res) => {
 
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 10;
-    const offset = (page - 1) * pageSize;
+    const offset = (page - 1) * pageSize; // 计算跳过的记录数
 
     try {
         const { count, rows } = await SensitiveWord.findAndCountAll({
@@ -47,6 +47,7 @@ router.post('/create', async (req, res) => {
     }
 
     try {
+        // 调用工具函数添加敏感词
         await addWord(word, type);
         res.json({ message: '敏感词已添加', word, type });
     } catch (e) {
@@ -71,6 +72,7 @@ router.delete('/delete/:id', async (req, res) => {
     }
 
     try {
+        // 查找敏感词
         const sensitiveWord = await SensitiveWord.findByPk(id);
         if (!sensitiveWord) {
             return res.status(404).json({ error: '敏感词不存在' });
@@ -96,6 +98,7 @@ router.delete('/delete/:id', async (req, res) => {
         res.status(500).json({ error: '删除失败' });
     }
 });
+
 //  获取所有敏感词
 router.get('/list', async (req, res) => {
     const page = parseInt(req.query.page) || 1;
@@ -123,12 +126,14 @@ router.put('/update/:id', async (req, res) => {
     }
 
     try {
+        // 检查记录是否存在
         const record = await SensitiveWord.findByPk(id);
         if (!record) return res.status(404).json({ error: '敏感词不存在' });
 
         // 验证正则语法
         if (type === 'regex') {
             try {
+                // 尝试编译正则 不捕获 flags
                 new RegExp(word, 'gi');
             } catch (e) {
                 return res

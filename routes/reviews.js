@@ -17,23 +17,24 @@ router.post('/:article_id', async (req, res) => {
 
     // 校验参数
     if (!['通过', '拒绝', '退回修订'].includes(review_result)) {
-        console.log('[审核] ❌ 审核结果非法');
+        console.log('[审核]  审核结果非法');
         console.log('========== [DEBUG] 人工审核结束 ==========\n');
         return res.status(400).json({
             error: '审核结果非法，仅支持：通过、拒绝、退回修订',
         });
     }
 
+    // 开启数据库事务（确保数据一致性 要么全部成功 要么全部回滚）
     const t = await sequelize.transaction();
     try {
-        // 获取文章信息
+        // 查询该文章是否存在 且状态为待审
         const article = await Article.findOne({
             where: { article_id, status: '待审' },
-            transaction: t,
+            transaction: t, // 在事务中执行
         });
 
         if (!article) {
-            console.log('[审核] ❌ 文章不存在或状态不是待审');
+            console.log('[审核]  文章不存在或状态不是待审');
             console.log('========== [DEBUG] 人工审核结束 ==========\n');
             throw new Error('文章不存在或状态不是待审');
         }
@@ -49,9 +50,9 @@ router.post('/:article_id', async (req, res) => {
                 review_result,
                 review_comments,
             },
-            { transaction: t }
+            { transaction: t } // 在事务中创建
         );
-        console.log('[审核] ✓ 审核记录已保存');
+        console.log('[审核] 审核记录已保存');
 
         let newStatus = '';
         let publish_date = null;
@@ -60,6 +61,7 @@ router.post('/:article_id', async (req, res) => {
         if (review_result === '通过') {
             // 检查是否有定时发布时间
             if (article.scheduled_publish_date) {
+                // 对比定时发布时间与当前时间
                 const scheduledTime = new Date(article.scheduled_publish_date);
                 const now = new Date();
 
@@ -73,40 +75,40 @@ router.post('/:article_id', async (req, res) => {
                     // 定时发布时间还未到 -> 待发布
                     newStatus = '待发布';
                     console.log(
-                        '[审核] ✓ 审核通过，定时发布时间未到，状态设为：待发布'
+                        '[审核] 审核通过，定时发布时间未到，状态设为：待发布'
                     );
                 } else {
                     // 定时发布时间已过 -> 立即发布
                     newStatus = '已发布';
                     publish_date = now;
-                    console.log(
-                        '[审核] ✓ 审核通过，定时发布时间已到，立即发布'
-                    );
+                    console.log('[审核] 审核通过，定时发布时间已到，立即发布');
                 }
             } else {
                 // 没有定时发布时间 -> 立即发布
                 newStatus = '已发布';
                 publish_date = new Date();
-                console.log('[审核] ✓ 审核通过，无定时发布，立即发布');
+                console.log('[审核] 审核通过，无定时发布，立即发布');
             }
         } else if (review_result === '拒绝') {
             newStatus = '拒绝';
-            console.log('[审核] ❌ 审核拒绝，状态设为：拒绝');
+            console.log('[审核] 审核拒绝，状态设为：拒绝');
         } else if (review_result === '退回修订') {
             newStatus = '退回修订';
-            console.log('[审核] ↩️  退回修订，状态设为：退回修订');
+            console.log('[审核] 退回修订，状态设为：退回修订');
         }
 
-        // 更新文章状态
+        // 准备要更新的文章字段
         const updateData = { status: newStatus };
         if (publish_date) {
-            updateData.publish_date = publish_date;
+            updateData.publish_date = publish_date; // 记录实际发布时间
             console.log('[审核] 设置发布时间:', publish_date.toISOString());
         }
 
+        // 更新文章状态
         await article.update(updateData, { transaction: t });
-        console.log('[审核] ✓ 文章状态已更新');
+        console.log('[审核] 文章状态已更新');
 
+        // 提交事务
         await t.commit();
 
         console.log('[审核结果] 最终状态:', newStatus);
@@ -119,8 +121,9 @@ router.post('/:article_id', async (req, res) => {
             publish_date,
         });
     } catch (e) {
+        // 出错时回滚事务
         await t.rollback();
-        console.error('[审核] ❌ 审核失败:', e.message);
+        console.error('[审核]  审核失败:', e.message);
         console.log('========== [DEBUG] 人工审核结束 ==========\n');
         res.status(500).json({ error: '审核失败: ' + e.message });
     }
@@ -159,6 +162,7 @@ router.get('/recordsList', async (req, res) => {
             where.article_id = parseInt(article_id);
         }
 
+        // 获取总数和当前页数据
         const { count, rows } = await Reviews.findAndCountAll({
             where,
             limit,
@@ -168,10 +172,11 @@ router.get('/recordsList', async (req, res) => {
                 {
                     model: Article,
                     attributes: ['title'],
+                    // 如传递文章标题，筛选文章标题包含该字符串的记录
                     where: article_title
                         ? { title: { [Op.like]: `%${article_title}%` } }
                         : undefined,
-                    required: true,
+                    required: true, // 内连接  只返回有关联文章的审核记录
                 },
                 {
                     model: User,
