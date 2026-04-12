@@ -911,7 +911,7 @@ router.put('/edit/:article_id', async (req, res) => {
                                     ? 'audio'
                                     : 'attachment',
                             media_url,
-                            description, // 👈 直接使用
+                            description,
                             created_at: new Date(),
                         })
                     );

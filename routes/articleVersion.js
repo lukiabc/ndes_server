@@ -25,10 +25,7 @@ router.get('/list/:article_id', async (req, res) => {
                 'content',
                 'created_at',
             ],
-            order: [
-                ['article_id', 'ASC'],
-                ['version_number', 'DESC'],
-            ],
+            order: [['created_at', 'DESC']],
             limit: limit,
             offset: offset,
         });
@@ -62,7 +59,7 @@ router.get('/list/:article_id', async (req, res) => {
     }
 });
 
-// 根据用户ID获取文章版本列表
+//根据用户ID获取文章版本列表（仅包含非最新且版本号>=2的历史版本）
 router.get('/user/:user_id', async (req, res) => {
     const user_id = parseInt(req.params.user_id);
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -74,36 +71,20 @@ router.get('/user/:user_id', async (req, res) => {
     }
 
     try {
-        // 查出用户编辑过、且文章是草稿的所有版本
-        const versions = await ArticleVersion.findAll({
+        // 1. 第一步：找出该用户参与过哪些文章（用于后续筛选）
+        // 这里我们不再直接分页，而是先获取该用户涉及的所有文章ID
+        const userVersionRecords = await ArticleVersion.findAll({
             where: { user_id },
-            include: [
-                {
-                    model: Article,
-                    as: 'Article',
-                    where: { status: '草稿' },
-                    attributes: ['article_id', 'title', 'status'],
-                },
-            ],
-            attributes: [
-                'version_id',
-                'article_id',
-                'user_id',
-                'version_number',
-                'title',
-                'editor',
-                'content',
-                'created_at',
-            ],
-            order: [
-                ['article_id', 'ASC'],
-                ['version_number', 'DESC'],
-            ],
-            limit,
-            offset,
+            attributes: ['article_id'],
+            raw: true,
         });
 
-        if (versions.length === 0) {
+        const articleIds = [
+            ...new Set(userVersionRecords.map((v) => v.article_id)),
+        ];
+
+        // 如果用户没有任何版本记录，直接返回空
+        if (articleIds.length === 0) {
             return res.json({
                 user_id,
                 total_versions: 0,
@@ -117,55 +98,86 @@ router.get('/user/:user_id', async (req, res) => {
             });
         }
 
-        // 提取所有涉及的 article_id
-        const articleIds = [...new Set(versions.map((v) => v.article_id))];
+        // 2. 第二步：针对这些文章，找出所有非最新、且版本号>=2的版本
+        // 我们需要先知道每篇文章的最新版本号是多少
+        const latestVersionSubQuery = `
+      SELECT article_id, MAX(version_number) as max_version 
+      FROM ArticleVersions 
+      WHERE article_id IN (${articleIds.join(',')})
+      GROUP BY article_id
+    `;
 
-        // 批量统计每个 article_id 的总版本数
-        const counts = await ArticleVersion.findAll({
-            where: { article_id: articleIds },
-            attributes: [
-                'article_id',
-                [sequelize.fn('COUNT', sequelize.col('version_id')), 'total'],
-            ],
-            group: ['article_id'],
-            raw: true,
+        // 查询符合条件的版本（版本号 >= 2 且 < 最新版本号）
+        // 使用 Sequelize.raw 或直接使用 query（为了逻辑清晰，这里使用 findAll 配合复杂 where）
+        // 由于 Sequelize 处理跨表聚合比较复杂，这里推荐使用 raw query 或分步查询
+        // 为了保持代码结构，我们采用分步查询逻辑：
+
+        let allEligibleVersions = [];
+
+        // 遍历每篇文章，查询其历史版本（倒数第二版及更早的版本）
+        for (const aid of articleIds) {
+            const versions = await ArticleVersion.findAll({
+                where: { article_id: aid },
+                include: [
+                    {
+                        model: Article,
+                        as: 'Article',
+                        attributes: ['article_id', 'title', 'status'],
+                        // 确保文章状态是草稿
+                        where: { status: '草稿' },
+                    },
+                ],
+                attributes: [
+                    'version_id',
+                    'article_id',
+                    'user_id',
+                    'version_number',
+                    'title',
+                    'editor',
+                    'content',
+                    'created_at',
+                ],
+                order: [['created_at', 'DESC']],
+                // 关键逻辑：查询版本号 >= 2 且 不是最新版的数据
+                // 我们需要先查出最新版，然后 offset 1 limit 999 (或者直接在 SQL 中写 version_number < max)
+            });
+
+            // 过滤掉最新版本（即 versions[0] 是最新版，我们不要）
+            // 并且只保留 version_number >= 2 的
+            const historicalVersions =
+                versions.length >= 2 ? versions.slice(1) : [];
+
+            allEligibleVersions =
+                allEligibleVersions.concat(historicalVersions);
+        }
+        // 合并所有版本后，按创建时间降序排序
+        allEligibleVersions.sort((a, b) => {
+            return new Date(b.created_at) - new Date(a.created_at);
         });
 
-        const totalMap = {};
-        counts.forEach((row) => {
-            totalMap[row.article_id] = parseInt(row.total, 10);
-        });
+        // 3. 第三步：处理分页（因为我们是在内存中聚合了多篇文章的数据，需要手动分页）
+        const totalCount = allEligibleVersions.length;
+        const paginatedVersions = allEligibleVersions.slice(
+            offset,
+            offset + limit
+        );
 
-        // 合并数据：包含 article 对象
-        const enrichedVersions = versions.map((v) => ({
-            version_id: v.version_id,
-            article_id: v.article_id,
-            user_id: v.user_id,
-            version_number: v.version_number,
-            title: v.title,
-            editor: v.editor,
-            content: v.content,
-            created_at: v.created_at,
-            total_versions: totalMap[v.article_id] || 1,
-            article: {
-                article_id: v.Article.article_id,
-                title: v.Article.title,
-                status: v.Article.status,
-            },
-        }));
-
-        // 获取总数
-        const totalCount = await ArticleVersion.count({
-            where: { user_id },
-            include: [
-                {
-                    model: Article,
-                    as: 'Article',
-                    where: { status: '草稿' },
+        // 4. 第四步：构建返回数据
+        if (paginatedVersions.length === 0) {
+            return res.json({
+                user_id,
+                total_versions: totalCount,
+                pagination: {
+                    current_page: page,
+                    page_size: limit,
+                    total_items: totalCount,
+                    total_pages: Math.ceil(totalCount / limit) || 1,
                 },
-            ],
-        });
+                versions: [],
+            });
+        }
 
+        // 构建最终响应结构
         res.json({
             user_id,
             total_versions: totalCount,
@@ -175,10 +187,25 @@ router.get('/user/:user_id', async (req, res) => {
                 total_items: totalCount,
                 total_pages: Math.ceil(totalCount / limit),
             },
-            versions: enrichedVersions,
+            versions: paginatedVersions.map((v) => ({
+                version_id: v.version_id,
+                article_id: v.article_id,
+                user_id: v.user_id,
+                version_number: v.version_number,
+                title: v.title,
+                editor: v.editor,
+                content: v.content,
+                created_at: v.created_at,
+                // 如果需要 total_versions 字段，可以额外查询或计算
+                article: {
+                    article_id: v.Article.article_id,
+                    title: v.Article.title,
+                    status: v.Article.status,
+                },
+            })),
         });
     } catch (error) {
-        console.error('查询用户可回溯版本失败:', error);
+        console.error('查询用户历史版本失败:', error);
         res.status(500).json({ error: '服务器内部错误: ' + error.message });
     }
 });
@@ -250,8 +277,8 @@ router.put('/revert/:article_id', async (req, res) => {
         //  获取当前最新版本号
         const latestVersion = await ArticleVersion.findOne({
             where: { article_id },
-            order: [['version_number', 'DESC']],
-            attributes: ['version_number'],
+            order: [['created_at', 'DESC']],
+            attributes: ['version_id', 'version_number', 'created_at'],
             transaction,
         });
 
@@ -287,7 +314,6 @@ router.put('/revert/:article_id', async (req, res) => {
                 title: targetVersion.title,
                 content: targetVersion.content,
                 editor: req.body.editor || 'system',
-                created_at: new Date(),
             },
             { transaction }
         );
@@ -356,7 +382,7 @@ router.get('/latest/:article_id', async (req, res) => {
         const latest = await ArticleVersion.findOne({
             where: { article_id },
             order: [['version_number', 'DESC']],
-            attributes: ['version_number', 'created_at'],
+            attributes: ['version_id', 'version_number', 'created_at'],
         });
 
         if (!latest) {
@@ -366,6 +392,7 @@ router.get('/latest/:article_id', async (req, res) => {
         res.json({
             article_id,
             latest_version: latest.version_number,
+            version_id: latest.version_id,
             created_at: latest.created_at,
         });
     } catch (error) {
