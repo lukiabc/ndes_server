@@ -71,8 +71,6 @@ router.get('/user/:user_id', async (req, res) => {
     }
 
     try {
-        // 1. 第一步：找出该用户参与过哪些文章（用于后续筛选）
-        // 这里我们不再直接分页，而是先获取该用户涉及的所有文章ID
         const userVersionRecords = await ArticleVersion.findAll({
             where: { user_id },
             attributes: ['article_id'],
@@ -98,8 +96,6 @@ router.get('/user/:user_id', async (req, res) => {
             });
         }
 
-        // 2. 第二步：针对这些文章，找出所有非最新、且版本号>=2的版本
-        // 我们需要先知道每篇文章的最新版本号是多少
         const latestVersionSubQuery = `
       SELECT article_id, MAX(version_number) as max_version 
       FROM ArticleVersions 
@@ -108,9 +104,6 @@ router.get('/user/:user_id', async (req, res) => {
     `;
 
         // 查询符合条件的版本（版本号 >= 2 且 < 最新版本号）
-        // 使用 Sequelize.raw 或直接使用 query（为了逻辑清晰，这里使用 findAll 配合复杂 where）
-        // 由于 Sequelize 处理跨表聚合比较复杂，这里推荐使用 raw query 或分步查询
-        // 为了保持代码结构，我们采用分步查询逻辑：
 
         let allEligibleVersions = [];
 
@@ -138,12 +131,9 @@ router.get('/user/:user_id', async (req, res) => {
                     'created_at',
                 ],
                 order: [['created_at', 'DESC']],
-                // 关键逻辑：查询版本号 >= 2 且 不是最新版的数据
-                // 我们需要先查出最新版，然后 offset 1 limit 999 (或者直接在 SQL 中写 version_number < max)
             });
 
-            // 过滤掉最新版本（即 versions[0] 是最新版，我们不要）
-            // 并且只保留 version_number >= 2 的
+            // 过滤掉最新版本
             const historicalVersions =
                 versions.length >= 2 ? versions.slice(1) : [];
 
@@ -155,14 +145,14 @@ router.get('/user/:user_id', async (req, res) => {
             return new Date(b.created_at) - new Date(a.created_at);
         });
 
-        // 3. 第三步：处理分页（因为我们是在内存中聚合了多篇文章的数据，需要手动分页）
+        // 处理分页
         const totalCount = allEligibleVersions.length;
         const paginatedVersions = allEligibleVersions.slice(
             offset,
             offset + limit
         );
 
-        // 4. 第四步：构建返回数据
+        // 构建返回数据
         if (paginatedVersions.length === 0) {
             return res.json({
                 user_id,
@@ -196,7 +186,6 @@ router.get('/user/:user_id', async (req, res) => {
                 editor: v.editor,
                 content: v.content,
                 created_at: v.created_at,
-                // 如果需要 total_versions 字段，可以额外查询或计算
                 article: {
                     article_id: v.Article.article_id,
                     title: v.Article.title,
@@ -381,7 +370,7 @@ router.get('/latest/:article_id', async (req, res) => {
     try {
         const latest = await ArticleVersion.findOne({
             where: { article_id },
-            order: [['version_number', 'DESC']],
+            order: [['created_at', 'DESC']],
             attributes: ['version_id', 'version_number', 'created_at'],
         });
 

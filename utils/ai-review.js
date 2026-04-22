@@ -245,7 +245,7 @@ async function performReview(title, content, isScheduled = false) {
             rejected: true,
             rejectReason,
             reviewLog: {
-                reviewer: 'system',
+                reviewer: 0,
                 review_result: '拒绝',
                 review_comments: `[本地] ${rejectReason}`,
                 review_time: new Date(),
@@ -309,7 +309,7 @@ async function performReview(title, content, isScheduled = false) {
         rejected, // 是否被拒绝
         rejectReason, // 记录拒绝原因
         reviewLog: {
-            reviewer: 'system',
+            reviewer: 0,
             review_result: reviewResult,
             review_comments: reviewComments,
             review_time: new Date(),

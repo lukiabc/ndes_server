@@ -77,6 +77,12 @@ module.exports = (sequelize, DataTypes) => {
                 comment: '计划发布时间，可为空表示立即发布',
                 get: chinaDateTimeGetter('scheduled_publish_date'),
             },
+            created_at: {
+                type: DataTypes.DATE,
+                defaultValue: DataTypes.NOW,
+                comment: '文章创建时间',
+                get: chinaDateTimeGetter('created_at'),
+            },
         },
         {
             sequelize,

@@ -168,6 +168,8 @@ router.get('/recordsList', async (req, res) => {
             limit,
             offset,
             order: [['review_time', 'DESC']],
+            distinct: true,
+            subQuery: true,
             include: [
                 {
                     model: Article,

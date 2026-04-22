@@ -83,7 +83,7 @@ router.get('/user/:user_id/status', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
             subQuery: false,
@@ -159,7 +159,7 @@ router.get('/pending/search', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
             subQuery: false,
@@ -255,7 +255,7 @@ router.get('/user/:user_id/search', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
         });
@@ -374,10 +374,10 @@ router.get('/status/:status', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
-            subQuery: false, //不使用子查询
+            subQuery: false,
         });
 
         res.json({
@@ -1042,7 +1042,7 @@ router.get('/list', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
         });
@@ -1108,7 +1108,7 @@ router.get('/user/:user_id', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
         });
@@ -1196,7 +1196,7 @@ router.get('/list/:category_id', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
             distinct: true,
@@ -1287,7 +1287,7 @@ router.get('/listByParent/:parent_id', async (req, res) => {
                     ],
                 },
             ],
-            order: [['publish_date', 'DESC']],
+            order: [['created_at', 'DESC']],
             limit: pageSize,
             offset: offset,
             distinct: true,
@@ -1466,7 +1466,7 @@ router.get('/searchAll', async (req, res) => {
                 ],
                 order: [
                     [Sequelize.literal('score'), 'DESC'],
-                    ['publish_date', 'DESC'],
+                    ['created_at', 'DESC'],
                 ],
                 limit: pageSize,
                 offset: offset,
