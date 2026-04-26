@@ -700,6 +700,8 @@ router.post('/create', async (req, res) => {
             message = '已提交，内容疑似违规，等待人工审核';
         } else if (status === '拒绝') {
             message = '审核未通过，文章已被拒绝';
+        } else if (status === '草稿') {
+            message = '网络较差，百度云审核失败，文章已转入草稿箱，请下次再试';
         }
 
         res.json({
@@ -959,6 +961,8 @@ router.put('/edit/:article_id', async (req, res) => {
             message = '已提交，内容疑似违规，等待人工审核';
         } else if (status === '拒绝') {
             message = '审核未通过，文章已被拒绝';
+        } else if (status === '草稿') {
+            message = '网络较差，百度云审核失败，文章已转入草稿箱，请下次再试';
         }
 
         res.json({

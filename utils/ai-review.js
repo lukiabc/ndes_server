@@ -296,11 +296,11 @@ async function performReview(title, content, isScheduled = false) {
         reviewComments = `[系统] 本地敏感词检测通过，但${baiduResult.message}`;
         console.log('[AI-Review] 检测到疑似违规，进入人工审核队列');
     } else if (baiduResult.pass === 'error') {
-        // 百度云异常 - 降级为人工审核
-        status = '待审';
-        reviewResult = '待人工审核';
-        reviewComments = `[系统] 本地敏感词检测通过，云端审核异常（${baiduResult.message}），进入人工审核队列。`;
-        console.warn('[AI-Review] 云端审核异常，已降级为人工审核');
+        // 百度云异常 - 转入草稿箱
+        status = '草稿';
+        reviewResult = '网络异常';
+        reviewComments = `[系统] 本地敏感词检测通过，但云端审核异常（${baiduResult.message}），已转入草稿箱，请检查网络后重试。`;
+        console.warn('[AI-Review] 云端审核异常，已转入草稿箱');
     }
 
     // 返回综合审核结果
